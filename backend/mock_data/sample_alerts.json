@@ -1,0 +1,16 @@
+[
+  {
+    "id": "fixture-001",
+    "rule": {"id": "100001", "description": "PowerShell encoded command execution", "level": 14},
+    "agent": {"name": "ws-fin-07", "ip": "10.20.4.17"},
+    "timestamp": "2026-08-24T08:21:00Z",
+    "full_log": "powershell.exe -EncodedCommand AAECAwQ="
+  },
+  {
+    "id": "fixture-002",
+    "rule": {"id": "100002", "description": "New scheduled task created", "level": 10},
+    "agent": {"name": "srv-app-02", "ip": "10.20.8.42"},
+    "timestamp": "2026-08-24T08:14:00Z",
+    "full_log": "schtasks /create /tn updater /tr powershell.exe"
+  }
+]
