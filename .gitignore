@@ -19,3 +19,6 @@ frontend/.vite/
 .DS_Store
 .vscode/
 .idea/
+
+# Velociraptor runtime (binary, generated config, logs)
+backend/runtime/

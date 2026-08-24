@@ -104,3 +104,21 @@ def test_setup_wizard_rejects_insecure_or_credential_embedded_endpoints(client):
     embedded_credentials = client.post("/api/setup/wazuh/start", json={"endpoint": "https://user:secret@wazuh.internal"})
     assert embedded_credentials.status_code == 422
     assert "Credentials" in embedded_credentials.json()["detail"]
+
+
+def test_velociraptor_api_catalog_and_approval_gates(client):
+    catalog = client.get("/api/velociraptor/catalog")
+    assert catalog.status_code == 200
+    assert catalog.json()["release"] == "0.77.2"
+
+    download = client.post("/api/velociraptor/prepare", json={"platform": "linux-amd64", "confirm_download": False})
+    assert download.status_code == 400
+    assert "confirmation" in download.json()["detail"]
+
+    wizard = client.post("/api/velociraptor/wizard/start", json={"platform": "linux-amd64", "confirm_start": True})
+    assert wizard.status_code == 422
+    assert "prepared" in wizard.json()["detail"]
+
+    server = client.post("/api/velociraptor/run", json={"platform": "linux-amd64", "confirm_run": True})
+    assert server.status_code == 422
+    assert "prepared" in server.json()["detail"]

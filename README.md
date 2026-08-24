@@ -163,3 +163,37 @@ The setup screen records readiness state but does not install software on remote
 | Credentials | Not accepted in URLs; reserved for the next authenticated setup step |
 | Remote installation | Not executed by the browser wizard; readiness state only |
 | Audit | Readiness start events are written to the backend audit store |
+
+## Velociraptor installation workflow
+
+The Project Setup screen now includes a complete, approval-gated Velociraptor flow. The backend selects a platform from an allowlisted official release catalog, downloads the matching Velocidex GitHub asset, verifies its published SHA-256 digest, and stores the verified binary under the ignored `backend/runtime/velociraptor/` directory.
+
+After verification, the UI can start the official interactive command `velociraptor config generate -i` without shell interpolation. Its terminal output is streamed into the dashboard and the operator can provide bounded wizard answers. Once `server.config.yaml` exists, the final **Run Velociraptor server** action requires a separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
+
+The implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
+
+After pulling the repository, the entire application can be started with one command:
+
+```bash
+cd ~/Desktop/project/sentroxis-copilot
+./start.sh
+```
+
+`start.sh` delegates to `setup_and_test.sh`, which installs dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass.
+
+### References
+
+[1]: https://docs.velociraptor.app/downloads/ "Velociraptor official downloads"
+[2]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor official quickstart"
+
+### Velociraptor runtime API
+
+| Endpoint | Purpose | Safety boundary |
+|---|---|---|
+| `GET /api/velociraptor/catalog` | Return the official allowlisted release assets for the detected host | No arbitrary URLs |
+| `POST /api/velociraptor/prepare` | Download and SHA-256 verify the selected release asset | Explicit confirmation and fixed asset map |
+| `POST /api/velociraptor/wizard/start` | Start `config generate -i` for the verified binary | Explicit confirmation and no shell |
+| `GET /api/velociraptor/wizard/{session_id}` | Read bounded interactive wizard output | Session-scoped access |
+| `POST /api/velociraptor/wizard/input` | Send bounded answers to the fixed config wizard | No command substitution |
+| `POST /api/velociraptor/run` | Start `frontend --config` after config creation | Explicit confirmation and generated config required |
+| `POST /api/velociraptor/stop` | Stop the process started by the service | Analyst authorization |

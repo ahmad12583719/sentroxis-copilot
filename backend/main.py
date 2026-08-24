@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from backend.core.auth import Principal, get_principal, require_role
 from backend.core.llm_agent import agent
 from backend.core.setup_service import default_state, start_readiness
+from backend.core.velociraptor_setup import VelociraptorSetupService
 from backend.core.models import (
     AIAnalysis,
     Alert,
@@ -30,6 +31,15 @@ from backend.core.models import (
     SetupActionResponse,
     SetupStartRequest,
     SetupState,
+    VelociraptorPrepareRequest,
+    VelociraptorPrepareResponse,
+    VelociraptorCatalog,
+    VelociraptorRunRequest,
+    VelociraptorRunResponse,
+    VelociraptorWizardInput,
+    VelociraptorWizardOutput,
+    VelociraptorWizardStartRequest,
+    VelociraptorWizardStartResponse,
     Source,
     TimelineEvent,
 )
@@ -67,6 +77,7 @@ class ActionProposal(BaseModel):
 
 wazuh = WazuhService()
 velociraptor = VelociraptorService()
+velociraptor_setup = VelociraptorSetupService(BASE_DIR / "runtime" / "velociraptor")
 
 
 def utc_now() -> str:
@@ -238,6 +249,130 @@ def start_server_setup(
         else "Continue through Wazuh Manager, Indexer, identity, and read-only health checks."
     )
     return SetupActionResponse(server=server, message=message, next_action=next_action, audit_id=audit.id)
+
+
+@app.get("/api/velociraptor/catalog", response_model=VelociraptorCatalog)
+def velociraptor_catalog(principal: Principal = Depends(get_principal)) -> VelociraptorCatalog:
+    _ = principal
+    return velociraptor_setup.catalog()
+
+
+@app.post("/api/velociraptor/prepare", response_model=VelociraptorPrepareResponse)
+def prepare_velociraptor(request: VelociraptorPrepareRequest, principal: Principal = Depends(get_principal)) -> VelociraptorPrepareResponse:
+    require_role(principal, "analyst", "admin")
+    try:
+        installation = velociraptor_setup.prepare(request.platform, request.confirm_download)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=502, detail="Official binary download failed") from exc
+    audit = save_audit(principal, "velociraptor.binary.prepared", installation.filename, {"verified": "true", "version": installation.version})
+    return VelociraptorPrepareResponse(
+        installation=installation,
+        message="The official Velociraptor binary was downloaded and SHA-256 verified.",
+        next_action="Review the command, then explicitly start the interactive config wizard.",
+        audit_id=audit.id,
+    )
+
+
+@app.post("/api/velociraptor/wizard/start", response_model=VelociraptorWizardStartResponse)
+def start_velociraptor_wizard(request: VelociraptorWizardStartRequest, principal: Principal = Depends(get_principal)) -> VelociraptorWizardStartResponse:
+    require_role(principal, "analyst", "admin")
+    try:
+        installation = velociraptor_setup.load_installation()
+        if installation.platform != request.platform:
+            raise ValueError("Wizard platform must match the verified installation")
+        session_id, command = velociraptor_setup.start_wizard(installation, request.confirm_start)
+        session = velociraptor_setup.get_session(session_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    save_audit(principal, "velociraptor.config_wizard.started", session_id, {"platform": request.platform.value})
+    return VelociraptorWizardStartResponse(
+        session_id=session_id,
+        command_preview=command,
+        output=session.snapshot(),
+        running=session.process.poll() is None,
+        config_path=str(session.config_path),
+        message="Interactive wizard started. Provide answers only for this approved local configuration process.",
+    )
+
+
+@app.get("/api/velociraptor/wizard/{session_id}", response_model=VelociraptorWizardOutput)
+def get_velociraptor_wizard(session_id: str, principal: Principal = Depends(get_principal)) -> VelociraptorWizardOutput:
+    _ = principal
+    try:
+        session = velociraptor_setup.get_session(session_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Wizard session not found") from exc
+    return VelociraptorWizardOutput(
+        session_id=session.session_id,
+        output=session.snapshot(),
+        running=session.process.poll() is None,
+        exit_code=session.process.poll(),
+        config_path=str(session.config_path),
+        config_ready=session.config_path.is_file(),
+    )
+
+
+@app.post("/api/velociraptor/wizard/input", response_model=VelociraptorWizardOutput)
+def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: Principal = Depends(get_principal)) -> VelociraptorWizardOutput:
+    require_role(principal, "analyst", "admin")
+    try:
+        session = velociraptor_setup.send_input(request.session_id, request.input)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Wizard session not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return VelociraptorWizardOutput(
+        session_id=session.session_id,
+        output=session.snapshot(),
+        running=session.process.poll() is None,
+        exit_code=session.process.poll(),
+        config_path=str(session.config_path),
+        config_ready=session.config_path.is_file(),
+    )
+
+
+@app.post("/api/velociraptor/run", response_model=VelociraptorRunResponse)
+def run_velociraptor_server(request: VelociraptorRunRequest, principal: Principal = Depends(get_principal)) -> VelociraptorRunResponse:
+    require_role(principal, "analyst", "admin")
+    try:
+        installation = velociraptor_setup.load_installation()
+        if installation.platform != request.platform:
+            raise ValueError("Run platform must match the verified installation")
+        pid = velociraptor_setup.run_server(installation, request.confirm_run)
+    except PermissionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    running, pid = velociraptor_setup.server_status()
+    audit = save_audit(principal, "velociraptor.server.started", str(pid), {"platform": request.platform.value, "approval": "explicit"})
+    return VelociraptorRunResponse(
+        running=running,
+        pid=pid,
+        command_preview=installation.server_command_preview,
+        config_path=installation.config_path,
+        message="Velociraptor server process started from the verified binary and generated configuration.",
+        audit_id=audit.id,
+    )
+
+
+@app.post("/api/velociraptor/stop", response_model=VelociraptorRunResponse)
+def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> VelociraptorRunResponse:
+    require_role(principal, "analyst", "admin")
+    installation = None
+    try:
+        installation = velociraptor_setup.load_installation()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Velociraptor has not been prepared")
+    velociraptor_setup.stop_server()
+    running, pid = velociraptor_setup.server_status()
+    audit = save_audit(principal, "velociraptor.server.stopped", str(pid or "unknown"), {"approval": "explicit"})
+    return VelociraptorRunResponse(running=running, pid=pid, command_preview=installation.server_command_preview, config_path=installation.config_path, message="Velociraptor server process stopped.", audit_id=audit.id)
 
 
 @app.get("/api/alerts", response_model=AlertListResponse)

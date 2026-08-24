@@ -7,7 +7,7 @@ describe('Sentroxis Copilot application', () => {
     render(<App />)
     expect(screen.getByRole('heading', { name: /set up your command center/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /wazuh server/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /velociraptor server/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 3, name: 'Velociraptor Server' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /connect velociraptor/i })).toBeInTheDocument()
     expect(screen.getByText('Velociraptor wizard')).toBeInTheDocument()
   })

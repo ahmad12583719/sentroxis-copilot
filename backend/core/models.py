@@ -206,3 +206,118 @@ class SetupActionResponse(BaseModel):
     message: str
     next_action: str
     audit_id: str
+
+
+class VelociraptorPlatform(str, Enum):
+    linux_amd64 = "linux-amd64"
+    linux_arm64 = "linux-arm64"
+    linux_amd64_musl = "linux-amd64-musl"
+    windows_amd64 = "windows-amd64"
+    darwin_amd64 = "darwin-amd64"
+    darwin_arm64 = "darwin-arm64"
+
+
+class VelociraptorAsset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    version: str
+    filename: str
+    download_url: str
+    sha256: str = Field(pattern=r"^[a-fA-F0-9]{64}$")
+    is_host_platform: bool = False
+
+
+class VelociraptorCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    release: str
+    host_platform: VelociraptorPlatform | None
+    assets: list[VelociraptorAsset]
+    source_url: str
+    signature_key: str
+
+
+class VelociraptorPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    confirm_download: bool = False
+
+
+class VelociraptorInstallation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    version: str
+    binary_path: str
+    filename: str
+    sha256: str
+    verified: bool
+    downloaded_at: datetime = Field(default_factory=utc_now)
+    command_preview: str
+    config_path: str
+    server_command_preview: str
+
+
+class VelociraptorPrepareResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    installation: VelociraptorInstallation
+    message: str
+    next_action: str
+    audit_id: str
+
+
+class VelociraptorWizardStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    confirm_start: bool = False
+
+
+class VelociraptorWizardStartResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    command_preview: str
+    output: str
+    running: bool
+    config_path: str
+    message: str
+
+
+class VelociraptorWizardInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=12, max_length=80)
+    input: str = Field(max_length=500)
+
+
+class VelociraptorWizardOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    output: str
+    running: bool
+    exit_code: int | None = None
+    config_path: str
+    config_ready: bool
+
+
+class VelociraptorRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    confirm_run: bool = False
+
+
+class VelociraptorRunResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    running: bool
+    pid: int | None
+    command_preview: str
+    config_path: str
+    message: str
+    audit_id: str
