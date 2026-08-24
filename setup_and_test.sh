@@ -4,12 +4,18 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-printf '\n==> Preparing Python environment\n'
+if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
+  printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2
+  exit 1
+fi
+
+printf '==> Preparing Python environment\n'
+python3 --version
 python3 -m venv backend/.venv
 # shellcheck disable=SC1091
 source backend/.venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r backend/requirements.txt
+python -m pip install --only-binary=:all: -r backend/requirements.txt
 
 printf '\n==> Installing frontend dependencies\n'
 cd frontend

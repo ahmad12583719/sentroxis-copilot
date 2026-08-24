@@ -85,7 +85,7 @@ chmod +x setup_and_test.sh
 ./setup_and_test.sh
 ```
 
-The script creates or refreshes `backend/.venv`, installs the pinned Python dependencies, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. The API is available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
+The script checks that the checkout includes the Python 3.14 compatibility fix, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
 
 To run the services separately after setup:
 
