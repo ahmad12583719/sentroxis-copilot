@@ -169,6 +169,7 @@ def init_db() -> None:
             );
             """
         )
+        db.execute("DELETE FROM alerts WHERE source = 'demo' OR id LIKE 'demo-%'")
 
 
 def load_setup_state() -> SetupState:
