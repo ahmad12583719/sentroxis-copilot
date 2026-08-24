@@ -78,7 +78,7 @@ sentroxis-copilot/
 
 ## Local development
 
-The project targets Python 3.10+ and a current Node.js runtime. The backend requirement range uses Pydantic 2.12+ because that release line includes initial Python 3.14 support. If an earlier interrupted attempt left a partial environment, the setup script can be rerun safely; for a completely clean retry, remove `backend/.venv` first. The shortest path is:
+The project targets Python 3.10+ and a current Node.js runtime. The backend requirement range uses Pydantic 2.12+ because that release line includes initial Python 3.14 support. If an earlier interrupted attempt left a partial environment, the setup script can be rerun safely because it removes and recreates `backend/.venv` before installation. The shortest path is:
 
 ```bash
 chmod +x setup_and_test.sh

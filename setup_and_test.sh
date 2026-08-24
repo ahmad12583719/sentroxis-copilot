@@ -11,11 +11,13 @@ fi
 
 printf '==> Preparing Python environment\n'
 python3 --version
+rm -rf backend/.venv
 python3 -m venv backend/.venv
 # shellcheck disable=SC1091
 source backend/.venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install --only-binary=:all: -r backend/requirements.txt
+python -m pip check
 
 printf '\n==> Installing frontend dependencies\n'
 cd frontend
