@@ -144,3 +144,65 @@ class AuditEvent(BaseModel):
     target: str
     created_at: datetime = Field(default_factory=utc_now)
     metadata: dict[str, str] = Field(default_factory=dict)
+
+
+ServerKey = Literal["wazuh", "velociraptor"]
+
+
+class SetupStatus(str, Enum):
+    not_started = "not_started"
+    ready = "ready"
+    in_progress = "in_progress"
+    configured = "configured"
+    blocked = "blocked"
+
+
+class WizardStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    title: str
+    description: str
+    required: bool = True
+    safe_note: str = "No installation command is executed by the web wizard."
+
+
+class SetupServer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: ServerKey
+    name: str
+    tagline: str
+    description: str
+    status: SetupStatus = SetupStatus.not_started
+    endpoint: str | None = Field(default=None, max_length=255)
+    version: str | None = Field(default=None, max_length=80)
+    last_checked: datetime | None = None
+    steps: list[WizardStep] = Field(default_factory=list)
+
+
+class SetupState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_name: str = "Sentroxis Copilot"
+    current_step: int = Field(default=1, ge=1, le=10)
+    total_steps: int = Field(default=4, ge=1, le=10)
+    servers: list[SetupServer]
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class SetupStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = Field(min_length=1, max_length=255)
+    version: str | None = Field(default=None, max_length=80)
+    mode: Literal["readiness_only"] = "readiness_only"
+
+
+class SetupActionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    server: SetupServer
+    message: str
+    next_action: str
+    audit_id: str

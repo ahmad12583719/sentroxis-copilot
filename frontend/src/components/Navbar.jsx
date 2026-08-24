@@ -1,6 +1,7 @@
 import { Bell, CircleHelp, Command, Menu, Search, ShieldCheck } from 'lucide-react'
 
 const navItems = [
+  { label: 'Project setup', key: 'setup' },
   { label: 'Overview', key: 'dashboard' },
   { label: 'Wazuh signals', key: 'wazuh' },
   { label: 'Velociraptor', key: 'velociraptor' },

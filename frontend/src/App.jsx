@@ -1,13 +1,15 @@
 import { useState } from 'react'
-import { Activity, ChevronLeft, ChevronRight, Cpu, FileText, Home, Radio, Settings2, Sparkles, Waypoints } from 'lucide-react'
+import { Activity, ChevronLeft, ChevronRight, Cpu, FileText, Home, Radio, Server, Settings2, Sparkles, Waypoints } from 'lucide-react'
 import Navbar from './components/Navbar'
 import Dashboard from './pages/Dashboard'
 import Wazuh from './pages/Wazuh'
 import Velociraptor from './pages/Velociraptor'
 import AIChat from './pages/AIChat'
+import Setup from './pages/Setup'
 import './App.css'
 
 const sideItems = [
+  { key: 'setup', label: 'Project setup', icon: Server, badge: 'STEP 1' },
   { key: 'dashboard', label: 'Overview', icon: Home },
   { key: 'wazuh', label: 'Wazuh signals', icon: Activity, count: 4 },
   { key: 'velociraptor', label: 'Velociraptor', icon: Waypoints },
@@ -19,11 +21,11 @@ function Sidebar({ activeView, onNavigate, collapsed, onToggle }) {
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState('dashboard')
+  const [activeView, setActiveView] = useState('setup')
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [selectedAlert, setSelectedAlert] = useState(null)
   const navigate = (view) => { setActiveView(view); setMobileOpen(false) }
-  const page = activeView === 'wazuh' ? <Wazuh onSelectAlert={(alert) => { setSelectedAlert(alert); navigate('ai') }} /> : activeView === 'velociraptor' ? <Velociraptor /> : activeView === 'ai' ? <AIChat selectedAlert={selectedAlert} /> : <Dashboard onNavigate={navigate} onSelectAlert={setSelectedAlert} />
+  const page = activeView === 'setup' ? <Setup /> : activeView === 'wazuh' ? <Wazuh onSelectAlert={(alert) => { setSelectedAlert(alert); navigate('ai') }} /> : activeView === 'velociraptor' ? <Velociraptor /> : activeView === 'ai' ? <AIChat selectedAlert={selectedAlert} /> : <Dashboard onNavigate={navigate} onSelectAlert={setSelectedAlert} />
   return <div className={`app-frame ${mobileOpen ? 'mobile-nav-open' : ''}`}><Sidebar activeView={activeView} onNavigate={navigate} collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} /><div className="main-area"><Navbar activeView={activeView} onNavigate={navigate} onMenu={() => setMobileOpen((value) => !value)} />{page}<footer className="page-footer"><span>Sentroxis Copilot</span><span>Read-only demo environment</span><span>All telemetry is untrusted data</span></footer></div>{mobileOpen && <button className="mobile-scrim" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}</div>
 }

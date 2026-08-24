@@ -149,3 +149,17 @@ git commit -m "Build Sentroxis Copilot incident response workspace"
 gh repo create sentroxis-copilot --public --source=. --remote=origin
 git push -u origin HEAD
 ```
+
+## Step 1 project setup workflow
+
+The application now opens on the **Project setup** screen. It presents two separate server installation sections: **Wazuh Server** for detection and alert telemetry, and **Velociraptor Server** for endpoint evidence collection. Selecting either card opens its setup sequence; selecting Velociraptor displays the dedicated web wizard with endpoint, TLS verification, service identity, and read-only readiness steps.
+
+The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
+
+| Setup item | Current behavior |
+|---|---|
+| Wazuh Server | Manager endpoint, Indexer endpoint, service identity, and read-only health readiness sequence |
+| Velociraptor Server | HTTPS endpoint, TLS verification, service identity, and bounded collection readiness sequence |
+| Credentials | Not accepted in URLs; reserved for the next authenticated setup step |
+| Remote installation | Not executed by the browser wizard; readiness state only |
+| Audit | Readiness start events are written to the backend audit store |

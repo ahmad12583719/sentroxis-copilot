@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from backend.core.auth import Principal, get_principal, require_role
 from backend.core.llm_agent import agent
+from backend.core.setup_service import default_state, start_readiness
 from backend.core.models import (
     AIAnalysis,
     Alert,
@@ -25,6 +26,10 @@ from backend.core.models import (
     ChatResponse,
     Evidence,
     Investigation,
+    ServerKey,
+    SetupActionResponse,
+    SetupStartRequest,
+    SetupState,
     Source,
     TimelineEvent,
 )
@@ -101,7 +106,33 @@ def init_db() -> None:
                 metadata TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS setup_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
             """
+        )
+
+
+def load_setup_state() -> SetupState:
+    with connection() as db:
+        row = db.execute("SELECT payload FROM setup_state WHERE id = 1").fetchone()
+        if row:
+            return SetupState.model_validate_json(row["payload"])
+        state = default_state()
+        db.execute(
+            "INSERT INTO setup_state (id, payload, updated_at) VALUES (1, ?, ?)",
+            (state.model_dump_json(), state.updated_at.isoformat()),
+        )
+        return state
+
+
+def save_setup_state(state: SetupState) -> None:
+    with connection() as db:
+        db.execute(
+            "INSERT OR REPLACE INTO setup_state (id, payload, updated_at) VALUES (1, ?, ?)",
+            (state.model_dump_json(), state.updated_at.isoformat()),
         )
 
 
@@ -179,6 +210,34 @@ app.add_middleware(
 @app.get("/api/health", response_model=StatusResponse)
 def health() -> StatusResponse:
     return StatusResponse(service="sentroxis-copilot", status="operational", mode="read-only-demo", timestamp=datetime.now(timezone.utc))
+
+
+@app.get("/api/setup", response_model=SetupState)
+def get_setup_state(principal: Principal = Depends(get_principal)) -> SetupState:
+    _ = principal
+    return load_setup_state()
+
+
+@app.post("/api/setup/{server_key}/start", response_model=SetupActionResponse)
+def start_server_setup(
+    server_key: ServerKey,
+    request: SetupStartRequest,
+    principal: Principal = Depends(get_principal),
+) -> SetupActionResponse:
+    require_role(principal, "analyst", "admin")
+    state = load_setup_state()
+    try:
+        next_state, server, message = start_readiness(state, server_key, request.endpoint, request.version)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    save_setup_state(next_state)
+    audit = save_audit(principal, "setup.readiness.started", server.key, {"mode": request.mode})
+    next_action = (
+        "Continue through the Velociraptor wizard and validate TLS, identity, and read-only health."
+        if server.key == "velociraptor"
+        else "Continue through Wazuh Manager, Indexer, identity, and read-only health checks."
+    )
+    return SetupActionResponse(server=server, message=message, next_action=next_action, audit_id=audit.id)
 
 
 @app.get("/api/alerts", response_model=AlertListResponse)

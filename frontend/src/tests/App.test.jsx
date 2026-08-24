@@ -1,19 +1,21 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import App from '../App'
 
 describe('Sentroxis Copilot application', () => {
-  it('renders the branded SOC overview', () => {
+  it('renders the first-run server installation workspace', () => {
     render(<App />)
-    expect(screen.getByRole('button', { name: /go to sentroxis overview/i })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /good morning, analyst/i })).toBeInTheDocument()
-    expect(screen.getByText('MITRE ATT&CK matrix')).toBeInTheDocument()
-    expect(screen.getByText('Wazuh indexer · connected')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /set up your command center/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /wazuh server/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /velociraptor server/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /connect velociraptor/i })).toBeInTheDocument()
+    expect(screen.getByText('Velociraptor wizard')).toBeInTheDocument()
   })
 
-  it('exposes accessible navigation controls', () => {
+  it('navigates to the branded SOC overview', () => {
     render(<App />)
-    expect(screen.getByRole('navigation', { name: /primary navigation/i })).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: /workspace navigation/i })).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Overview' })[0])
+    expect(screen.getByRole('heading', { name: /good morning, analyst/i })).toBeInTheDocument()
+    expect(screen.getByText('MITRE ATT&CK matrix')).toBeInTheDocument()
   })
 })

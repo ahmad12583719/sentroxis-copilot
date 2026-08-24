@@ -74,3 +74,33 @@ def test_action_proposal_requires_approval(client):
 def test_missing_alert_returns_not_found(client):
     response = client.get("/api/alerts/missing/analysis")
     assert response.status_code == 404
+
+
+def test_setup_wizard_exposes_two_server_sections_and_persists_readiness(client):
+    state = client.get("/api/setup")
+    assert state.status_code == 200
+    servers = {item["key"]: item for item in state.json()["servers"]}
+    assert set(servers) == {"wazuh", "velociraptor"}
+    assert servers["velociraptor"]["steps"][0]["id"] == "vr-endpoint"
+
+    ready = client.post(
+        "/api/setup/velociraptor/start",
+        json={"endpoint": "https://velociraptor.example.com", "version": "0.75.4", "mode": "readiness_only"},
+    )
+    assert ready.status_code == 200
+    assert ready.json()["server"]["status"] == "ready"
+    assert "read-only" in ready.json()["next_action"]
+
+    persisted = client.get("/api/setup").json()
+    persisted_vr = next(item for item in persisted["servers"] if item["key"] == "velociraptor")
+    assert persisted_vr["endpoint"] == "https://velociraptor.example.com"
+
+
+def test_setup_wizard_rejects_insecure_or_credential_embedded_endpoints(client):
+    http_endpoint = client.post("/api/setup/wazuh/start", json={"endpoint": "http://wazuh.internal"})
+    assert http_endpoint.status_code == 422
+    assert "HTTPS" in http_endpoint.json()["detail"]
+
+    embedded_credentials = client.post("/api/setup/wazuh/start", json={"endpoint": "https://user:secret@wazuh.internal"})
+    assert embedded_credentials.status_code == 422
+    assert "Credentials" in embedded_credentials.json()["detail"]
