@@ -9,11 +9,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from backend.core.auth import Principal, get_principal, require_role
+from backend.core.auth import (
+    SESSION_COOKIE,
+    Principal,
+    authenticate,
+    clear_session,
+    configure_auth_db,
+    create_session,
+    get_principal,
+    principal_payload,
+    register_first_user,
+    registration_allowed,
+    require_role,
+    set_session_cookie,
+)
 from backend.core.llm_agent import agent
 from backend.core.setup_service import default_state, start_readiness
 from backend.core.velociraptor_setup import VelociraptorSetupService
@@ -49,6 +62,22 @@ from backend.ingestion.wazuh_service import WazuhService
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("SENTROXIS_DB_PATH", str(BASE_DIR / "sentroxis.db")))
+
+
+class AuthCredentials(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class RegisterRequest(AuthCredentials):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class AuthResponse(BaseModel):
+    authenticated: bool
+    user: dict[str, str] | None = None
+    registration_open: bool
+    message: str
 
 
 class StatusResponse(BaseModel):
@@ -92,6 +121,7 @@ def connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    configure_auth_db(str(DB_PATH))
     with connection() as db:
         db.executescript(
             """
@@ -121,6 +151,21 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 payload TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
             );
             """
         )
@@ -218,9 +263,62 @@ app.add_middleware(
 )
 
 
+@app.get("/api/auth/status", response_model=AuthResponse)
+def auth_status(sentroxis_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> AuthResponse:
+    try:
+        principal = get_principal(sentroxis_session)
+    except HTTPException:
+        principal = None
+    return AuthResponse(
+        authenticated=principal is not None,
+        user=principal_payload(principal) if principal else None,
+        registration_open=registration_allowed(),
+        message="Authenticated" if principal else "Sign in to continue",
+    )
+
+
+@app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
+def register(request: RegisterRequest, response: Response) -> AuthResponse:
+    try:
+        principal = register_first_user(request.name, request.email, request.password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    token = create_session(principal)
+    set_session_cookie(response, token)
+    save_audit(principal, "auth.registered", principal.subject, {"method": "local_password"})
+    return AuthResponse(authenticated=True, user=principal_payload(principal), registration_open=False, message="Account created")
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(request: AuthCredentials, response: Response) -> AuthResponse:
+    principal = authenticate(request.email, request.password)
+    if not principal:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_session(principal)
+    set_session_cookie(response, token)
+    save_audit(principal, "auth.logged_in", principal.subject, {"method": "local_password"})
+    return AuthResponse(authenticated=True, user=principal_payload(principal), registration_open=False, message="Signed in successfully")
+
+
+@app.post("/api/auth/logout", response_model=AuthResponse)
+def logout(response: Response, sentroxis_session: str | None = Cookie(default=None, alias=SESSION_COOKIE)) -> AuthResponse:
+    principal = None
+    if sentroxis_session:
+        try:
+            principal = get_principal(sentroxis_session)
+        except HTTPException:
+            principal = None
+    if principal:
+        save_audit(principal, "auth.logged_out", principal.subject)
+    clear_session(response, sentroxis_session)
+    return AuthResponse(authenticated=False, user=None, registration_open=registration_allowed(), message="Signed out")
+
+
 @app.get("/api/health", response_model=StatusResponse)
 def health() -> StatusResponse:
-    return StatusResponse(service="sentroxis-copilot", status="operational", mode="read-only-demo", timestamp=datetime.now(timezone.utc))
+    return StatusResponse(service="sentroxis-copilot", status="operational", mode="authenticated-read-only", timestamp=datetime.now(timezone.utc))
 
 
 @app.get("/api/setup", response_model=SetupState)
@@ -377,7 +475,7 @@ def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> V
 
 @app.get("/api/alerts", response_model=AlertListResponse)
 def get_alerts(
-    source: str | None = Query(default=None, pattern="^(wazuh|velociraptor|demo)$"),
+    source: str | None = Query(default=None, pattern="^(wazuh|velociraptor)$"),
     severity: str | None = Query(default=None, pattern="^(low|medium|high|critical)$"),
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0, le=10000),
@@ -407,45 +505,6 @@ def ingest_alert(request: AlertIngestRequest, principal: Principal = Depends(get
     persist_alert(alert)
     save_audit(principal, "alert.ingested", alert.id, {"source": alert.source.value})
     return alert
-
-
-@app.post("/api/demo/load", response_model=AlertListResponse)
-def load_demo(principal: Principal = Depends(get_principal)) -> AlertListResponse:
-    require_role(principal, "analyst", "admin")
-    demo = [
-        {
-            "id": "demo-001",
-            "rule": {"id": "100001", "description": "PowerShell encoded command execution", "level": 14},
-            "agent": {"name": "ws-fin-07", "ip": "10.20.4.17"},
-            "timestamp": "2026-08-24T08:21:00Z",
-            "full_log": "powershell.exe -EncodedCommand AAECAwQ=",
-        },
-        {
-            "id": "demo-002",
-            "rule": {"id": "100002", "description": "New scheduled task created", "level": 10},
-            "agent": {"name": "srv-app-02", "ip": "10.20.8.42"},
-            "timestamp": "2026-08-24T08:14:00Z",
-            "full_log": "schtasks /create /tn updater /tr powershell.exe",
-        },
-        {
-            "id": "demo-003",
-            "rule": {"id": "100003", "description": "Suspicious LSASS access", "level": 13},
-            "agent": {"name": "dc-east-01", "ip": "10.20.1.11"},
-            "timestamp": "2026-08-24T07:58:00Z",
-            "full_log": "Access to lsass.exe memory detected",
-        },
-        {
-            "id": "demo-004",
-            "rule": {"id": "100004", "description": "Suspicious file cleanup", "level": 8},
-            "agent": {"name": "ws-ops-12", "ip": "10.20.6.9"},
-            "timestamp": "2026-08-24T07:40:00Z",
-            "full_log": "File deletion from temporary directory",
-        },
-    ]
-    for payload in demo:
-        persist_alert(wazuh.normalize_alert(payload).model_copy(update={"source": Source.demo}))
-    save_audit(principal, "demo.loaded", "demo-fixture", {"count": str(len(demo))})
-    return list_alerts(None, None, 100, 0)
 
 
 @app.get("/api/alerts/{alert_id}", response_model=Alert)
@@ -488,14 +547,14 @@ def create_investigation(request: InvestigationCreate, principal: Principal = De
 
 
 @app.post("/api/alerts/{alert_id}/evidence", response_model=Evidence, status_code=201)
-def collect_demo_evidence(alert_id: str, principal: Principal = Depends(get_principal)) -> Evidence:
+def collect_evidence(alert_id: str, principal: Principal = Depends(get_principal)) -> Evidence:
     require_role(principal, "analyst", "admin")
     alert = load_alert(alert_id)
     evidence = velociraptor.normalize_evidence(alert, {
         "artifact": "Windows.System.Services",
         "content": f"Read-only collection placeholder for {alert.agent_name}; no command executed.",
     })
-    save_audit(principal, "evidence.collection.proposed", alert_id, {"source": "velociraptor", "approval": "not-required-demo"})
+    save_audit(principal, "evidence.collection.proposed", alert_id, {"source": "velociraptor", "approval": "not-required-read-only-placeholder"})
     return evidence
 
 

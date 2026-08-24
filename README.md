@@ -57,7 +57,6 @@ sentroxis-copilot/
 │   ├── ingestion/
 │   │   ├── velociraptor_service.py
 │   │   └── wazuh_service.py
-│   ├── mock_data/sample_alerts.json
 │   └── tests/
 │       ├── test_api.py
 │       └── test_ingestion.py
@@ -99,11 +98,11 @@ cd frontend
 npm run dev
 ```
 
-## Demo workflow
+## Authenticated workflow
 
-Open the frontend and select **Wazuh signals** or **AI co-pilot** from the sidebar. The interface ships with a curated offline signal set so the experience does not depend on external image hosts, vendor credentials, or production telemetry. The API also exposes `POST /api/demo/load` for loading the same style of bounded demo records into SQLite.
+Open the frontend and sign in with an authenticated workspace account. The first account can be created during initial setup and becomes the workspace administrator. The dashboard starts with honest empty states until Wazuh or Velociraptor is configured and authorized telemetry is ingested.
 
-The default local authentication adapter allows a local analyst when `SENTROXIS_DEV_MODE=true`. For a protected environment, set `SENTROXIS_DEV_MODE=false` and provide a real authentication adapter before exposing the API. A temporary demo token can be configured with `SENTROXIS_DEMO_TOKEN`; tokens must never be committed or logged.
+Local password authentication is enabled for the workspace. The first account created through the login screen becomes the workspace administrator. Sessions use HTTP-only cookies, passwords are stored as PBKDF2-SHA256 hashes, and authentication records are persisted in SQLite. For production, place the database behind appropriate access controls and replace local authentication with an organization-managed identity provider.
 
 ## API surface
 
@@ -111,11 +110,10 @@ The default local authentication adapter allows a local analyst when `SENTROXIS_
 |---|---|---:|---:|
 | `GET /api/health` | Service health check | No | No |
 | `GET /api/alerts` | Bounded, filterable normalized alert list | No | No |
-| `POST /api/alerts/ingest` | Ingest and normalize a Wazuh/demo payload | Yes | Analyst authentication |
-| `POST /api/demo/load` | Load offline demo signals | Yes | Analyst authentication |
+| `POST /api/alerts/ingest` | Ingest and normalize an authorized Wazuh payload | Yes | Analyst authentication |
 | `GET /api/alerts/{id}/analysis` | Generate an advisory analysis | No | Analyst authentication |
 | `POST /api/investigations` | Create an investigation with an initial timeline event | Yes | Analyst authentication |
-| `POST /api/alerts/{id}/evidence` | Generate a bounded demo evidence record | Yes | Analyst authentication |
+| `POST /api/alerts/{id}/evidence` | Generate a bounded read-only evidence record | Yes | Analyst authentication |
 | `POST /api/chat` | Ask the advisory co-pilot a cited question | No | Analyst authentication |
 | `POST /api/actions/proposals` | Record an approval-gated response proposal | Yes | Analyst authentication |
 | `GET /api/audit` | Review audit events | No | Analyst authentication |

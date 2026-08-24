@@ -1,81 +1,45 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowRight, Check, ChevronRight, CircleHelp, ExternalLink, Globe2, KeyRound, LockKeyhole, Server, ShieldCheck, Sparkles, StepForward, Waypoints } from 'lucide-react'
 import VelociraptorInstaller from '../components/VelociraptorInstaller'
+import { authRequest } from '../auth/AuthProvider'
 
 const fallbackServers = [
-  {
-    key: 'wazuh', name: 'Wazuh Server', tagline: 'Detection and alert telemetry', description: 'Connect the Wazuh Manager API and Indexer to normalize alerts into the incident queue.', status: 'not_started', endpoint: '', version: '',
-    steps: [
-      { id: 'wazuh-endpoint', title: 'Manager endpoint', description: 'Enter the HTTPS URL of the Wazuh Server API.' },
-      { id: 'wazuh-indexer', title: 'Indexer endpoint', description: 'Configure a separate, bounded Indexer search endpoint.' },
-      { id: 'wazuh-identity', title: 'Service identity', description: 'Connect a least-privilege read-only service account.' },
-      { id: 'wazuh-test', title: 'Readiness check', description: 'Verify API reachability without changing agents or rules.' },
-    ],
-  },
-  {
-    key: 'velociraptor', name: 'Velociraptor Server', tagline: 'Endpoint evidence collection', description: 'Configure bounded, read-only artifact collection with evidence provenance and chain of custody.', status: 'not_started', endpoint: '', version: '',
-    steps: [
-      { id: 'vr-endpoint', title: 'Server endpoint', description: 'Enter the HTTPS URL of the Velociraptor frontend or API.' },
-      { id: 'vr-tls', title: 'TLS verification', description: 'Confirm the server certificate and trust boundary.' },
-      { id: 'vr-identity', title: 'Service identity', description: 'Connect a least-privilege read-only service account.' },
-      { id: 'vr-test', title: 'Readiness check', description: 'Verify health without launching a hunt or collection.' },
-    ],
-  },
+  { key: 'wazuh', name: 'Wazuh Server', tagline: 'Detection and alert telemetry', description: 'Connect the Wazuh Manager API and Indexer to normalize alerts into the incident queue.', status: 'not_started', endpoint: '', version: '', steps: [{ id: 'wazuh-endpoint', title: 'Manager endpoint', description: 'Enter the HTTPS URL of the Wazuh Server API.' }, { id: 'wazuh-indexer', title: 'Indexer endpoint', description: 'Configure a separate, bounded Indexer search endpoint.' }, { id: 'wazuh-identity', title: 'Service identity', description: 'Connect a least-privilege read-only service account.' }, { id: 'wazuh-test', title: 'Readiness check', description: 'Verify API reachability without changing agents or rules.' }] },
+  { key: 'velociraptor', name: 'Velociraptor Server', tagline: 'Endpoint evidence collection', description: 'Configure bounded, read-only artifact collection with evidence provenance and chain of custody.', status: 'not_started', endpoint: '', version: '', steps: [{ id: 'vr-endpoint', title: 'Server endpoint', description: 'Enter the HTTPS URL of the Velociraptor frontend or API.' }, { id: 'vr-tls', title: 'TLS verification', description: 'Confirm the server certificate and trust boundary.' }, { id: 'vr-identity', title: 'Service identity', description: 'Connect a least-privilege read-only service account.' }, { id: 'vr-test', title: 'Readiness check', description: 'Verify health without launching a hunt or collection.' }] },
 ]
 
 function statusLabel(status) {
   return { not_started: 'Not configured', ready: 'Ready to check', configured: 'Configured', in_progress: 'Checking' }[status] || 'Not configured'
 }
 
-export default function Setup() {
-  const [servers, setServers] = useState(fallbackServers)
+export default function Setup({ mode = 'installation', setupState, onSetupChanged }) {
+  const [serverOverrides, setServerOverrides] = useState({})
   const [selectedKey, setSelectedKey] = useState('velociraptor')
-  const [endpoint, setEndpoint] = useState('https://')
-  const [version, setVersion] = useState('')
+  const [endpointInput, setEndpointInput] = useState(null)
+  const [versionInput, setVersionInput] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [message, setMessage] = useState('')
+  const baseServers = setupState?.servers?.length ? setupState.servers : fallbackServers
+  const servers = baseServers.map((server) => serverOverrides[server.key] ? { ...server, ...serverOverrides[server.key] } : server)
   const selected = useMemo(() => servers.find((server) => server.key === selectedKey) || servers[0], [servers, selectedKey])
+  const endpoint = endpointInput ?? selected?.endpoint ?? 'https://'
+  const version = versionInput ?? selected?.version ?? ''
 
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/setup').then((response) => response.ok ? response.json() : Promise.reject(new Error('API unavailable'))).then((data) => {
-      if (!cancelled && data.servers?.length) setServers(data.servers)
-    }).catch(() => {})
-    return () => { cancelled = true }
-  }, [])
-
-  const chooseServer = (key) => {
-    const server = servers.find((item) => item.key === key)
-    setSelectedKey(key)
-    setEndpoint(server?.endpoint || 'https://')
-    setVersion(server?.version || '')
-    setMessage('')
-  }
-
+  const chooseServer = (key) => { setSelectedKey(key); setEndpointInput(null); setVersionInput(null); setMessage('') }
   const startSetup = async (event) => {
     event.preventDefault()
     setIsSubmitting(true)
     setMessage('')
     try {
-      const response = await fetch(`/api/setup/${selectedKey}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint, version: version || null, mode: 'readiness_only' }) })
-      if (!response.ok) throw new Error((await response.json()).detail || 'Readiness check could not start')
-      const data = await response.json()
-      setServers((current) => current.map((server) => server.key === selectedKey ? data.server : server))
+      const data = await authRequest(`/api/setup/${selectedKey}/start`, { method: 'POST', body: JSON.stringify({ endpoint, version: version || null, mode: 'readiness_only' }) })
+      setServerOverrides((current) => ({ ...current, [selectedKey]: data.server }))
+      setEndpointInput(data.server.endpoint || 'https://')
+      setVersionInput(data.server.version || '')
       setMessage(data.next_action)
-    } catch (error) {
-      if (endpoint.startsWith('https://') && endpoint.length > 8) {
-        setServers((current) => current.map((server) => server.key === selectedKey ? { ...server, endpoint, version, status: 'ready' } : server))
-        setMessage('Demo readiness state saved locally. Connect the backend to run a live server health check.')
-      } else {
-        setMessage(error.message || 'Use an HTTPS endpoint to continue.')
-      }
-    } finally {
-      setIsSubmitting(false)
-    }
+      onSetupChanged?.()
+    } catch (error) { setMessage(error.message || 'Use an HTTPS endpoint to continue.') } finally { setIsSubmitting(false) }
   }
 
-  return <main className="page-shell subpage-shell setup-page">
-    <section className="setup-hero"><div><p className="eyebrow"><Sparkles size={13} /> Project initialization <span className="slash">/</span> Step 01 of 04</p><h1>Set up your <em>command center.</em></h1><p className="lede">Connect the telemetry and evidence servers before the incident queue goes live.</p></div><div className="setup-progress"><div><span>SETUP PROGRESS</span><strong>25%</strong></div><div className="progress-track"><i /></div><small>Server installation is the first required step</small></div></section>
-    <section className="setup-layout"><div className="setup-left"><div className="section-kicker"><span>01</span><div><p className="eyebrow">Server installation</p><h2>Choose your security data plane</h2><p>Both integrations are read-only by default. Select a server to begin its readiness wizard.</p></div></div><div className="server-cards">{servers.map((server) => <button key={server.key} className={`server-card ${selectedKey === server.key ? 'selected' : ''}`} onClick={() => chooseServer(server.key)}><div className={`server-icon ${server.key}`}><Server size={21} /></div><div className="server-card-copy"><div className="server-card-top"><span className="server-number">{server.key === 'wazuh' ? '01' : '02'}</span><span className={`setup-status ${server.status}`}><i /> {statusLabel(server.status)}</span></div><h3>{server.name}</h3><p className="server-tagline">{server.tagline}</p><p>{server.description}</p><span className="server-card-action">Open setup <ArrowRight size={14} /></span></div>{selectedKey === server.key && <span className="selection-check"><Check size={14} /></span>}</button>)}</div><div className="setup-trust"><div className="trust-icon"><ShieldCheck size={17} /></div><div><strong>Safe installation workflow</strong><p>Sentroxis never executes shell commands, VQL, agent changes, or containment actions from this screen. It records endpoint readiness for an authorized analyst.</p></div><CircleHelp size={15} /></div>{selected.key === 'velociraptor' && <VelociraptorInstaller />}</div><div className="panel wizard-panel"><div className="wizard-header"><div className={`wizard-icon ${selected.key}`}><Waypoints size={19} /></div><div><p className="eyebrow">{selected.key === 'velociraptor' ? 'Velociraptor wizard' : 'Wazuh wizard'}</p><h2>Connect {selected.name.replace(' Server', '')}</h2><span>{selected.key === 'velociraptor' ? 'Evidence collection integration' : 'Detection telemetry integration'}</span></div><span className="wizard-step-count">1 <small>/ {selected.steps.length}</small></span></div><div className="wizard-steps">{selected.steps.map((step, index) => <div className={`wizard-step ${index === 0 ? 'active' : ''}`} key={step.id}><span>{index + 1}</span><div><strong>{step.title}</strong><small>{step.description}</small></div>{index === 0 && <ChevronRight size={14} />}</div>)}</div><form className="wizard-form" onSubmit={startSetup}><div className="wizard-form-heading"><div><p className="eyebrow">Step 1 · endpoint</p><h3>{selected.key === 'velociraptor' ? 'Where is your Velociraptor server?' : 'Where is your Wazuh Manager?'}</h3></div><LockKeyhole size={16} /></div><label htmlFor="server-endpoint">HTTPS server endpoint<span>required</span></label><div className="input-with-icon"><Globe2 size={15} /><input id="server-endpoint" value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://server.example.com" autoComplete="url" /></div><label htmlFor="server-version">Server version <span>optional</span></label><div className="input-with-icon"><StepForward size={15} /><input id="server-version" value={version} onChange={(event) => setVersion(event.target.value)} placeholder={selected.key === 'velociraptor' ? 'e.g. 0.75.4' : 'e.g. 4.8.0'} /></div><button className="button primary wizard-submit" disabled={isSubmitting}>{isSubmitting ? 'Saving readiness…' : 'Start readiness check'} <ArrowRight size={15} /></button>{message && <p className="wizard-message" role="status"><Check size={14} /> {message}</p>}</form><div className="wizard-footer"><span><KeyRound size={13} /> Credentials are added in the next step</span><a href="https://docs.velociraptor.app/" target="_blank" rel="noreferrer">Integration docs <ExternalLink size={12} /></a></div></div></section><section className="setup-next"><div><span className="next-icon"><KeyRound size={16} /></span><div><p className="eyebrow">Up next</p><strong>Service identity &amp; access</strong><small>Least-privilege credentials, TLS verification, and read-only health</small></div></div><span className="next-locked"><LockKeyhole size={13} /> Locked until server readiness</span></section>
-  </main>
+  const installationMode = mode === 'installation'
+  return <main className="page-shell subpage-shell setup-page"><section className="setup-hero"><div><p className="eyebrow"><Sparkles size={13} /> {installationMode ? 'Workspace initialization' : 'Integration configuration'} <span className="slash">/</span> Step 01 of 04</p><h1>{installationMode ? <>Set up your <em>command center.</em></> : <>Configure your <em>data plane.</em></>}</h1><p className="lede">{installationMode ? 'Connect the telemetry and evidence servers before the incident queue goes live.' : 'Your servers are present. Add secure endpoints and verify their read-only integration state.'}</p></div><div className="setup-progress"><div><span>SETUP PROGRESS</span><strong>25%</strong></div><div className="progress-track"><i /></div><small>{installationMode ? 'Server installation is the first required step' : 'Server configuration is the first required step'}</small></div></section>{!installationMode && <section className="setup-existing-banner"><div className="trust-icon"><ShieldCheck size={17} /></div><div><strong>Existing security servers detected</strong><p>Continue to configure Wazuh and Velociraptor here. No installation command will run automatically.</p></div><span className="setup-status ready"><i /> Setup mode</span></section>}<section className="setup-layout"><div className="setup-left"><div className="section-kicker"><span>01</span><div><p className="eyebrow">{installationMode ? 'Server installation' : 'Server setup'}</p><h2>Choose your security data plane</h2><p>{installationMode ? 'Select a server to review its safe installation and readiness workflow.' : 'Select a server to configure its endpoint, identity, and read-only readiness checks.'}</p></div></div><div className="server-cards">{servers.map((server) => <button key={server.key} className={`server-card ${selectedKey === server.key ? 'selected' : ''}`} onClick={() => chooseServer(server.key)}><div className={`server-icon ${server.key}`}><Server size={21} /></div><div className="server-card-copy"><div className="server-card-top"><span className="server-number">{server.key === 'wazuh' ? '01' : '02'}</span><span className={`setup-status ${server.status}`}><i /> {statusLabel(server.status)}</span></div><h3>{server.name}</h3><p className="server-tagline">{server.tagline}</p><p>{server.description}</p><span className="server-card-action">{server.endpoint ? 'Configure setup' : installationMode ? 'Open installation' : 'Open setup'} <ArrowRight size={14} /></span></div>{selectedKey === server.key && <span className="selection-check"><Check size={14} /></span>}</button>)}</div><div className="setup-trust"><div className="trust-icon"><ShieldCheck size={17} /></div><div><strong>Safe installation workflow</strong><p>Sentroxis never executes shell commands, VQL, agent changes, or containment actions from this screen. It records endpoint readiness for an authorized analyst.</p></div><CircleHelp size={15} /></div>{installationMode && selected.key === 'velociraptor' && <VelociraptorInstaller />}</div><div className="panel wizard-panel"><div className="wizard-header"><div className={`wizard-icon ${selected.key}`}><Waypoints size={19} /></div><div><p className="eyebrow">{selected.key === 'velociraptor' ? 'Velociraptor setup' : 'Wazuh setup'}</p><h2>{selected.endpoint ? 'Update connection' : `Connect ${selected.name.replace(' Server', '')}`}</h2><span>{selected.key === 'velociraptor' ? 'Evidence collection integration' : 'Detection telemetry integration'}</span></div><span className="wizard-step-count">1 <small>/ {selected.steps.length}</small></span></div><div className="wizard-steps">{selected.steps.map((step, index) => <div className={`wizard-step ${index === 0 ? 'active' : ''}`} key={step.id}><span>{index + 1}</span><div><strong>{step.title}</strong><small>{step.description}</small></div>{index === 0 && <ChevronRight size={14} />}</div>)}</div><form className="wizard-form" onSubmit={startSetup}><div className="wizard-form-heading"><div><p className="eyebrow">Step 1 · endpoint</p><h3>{selected.key === 'velociraptor' ? 'Where is your Velociraptor server?' : 'Where is your Wazuh Manager?'}</h3></div><LockKeyhole size={16} /></div><label htmlFor="server-endpoint">HTTPS server endpoint<span>required</span></label><div className="input-with-icon"><Globe2 size={15} /><input id="server-endpoint" value={endpoint} onChange={(event) => setEndpointInput(event.target.value)} placeholder="https://server.example.com" autoComplete="url" /></div><label htmlFor="server-version">Server version <span>optional</span></label><div className="input-with-icon"><StepForward size={15} /><input id="server-version" value={version} onChange={(event) => setVersionInput(event.target.value)} placeholder={selected.key === 'velociraptor' ? 'e.g. 0.75.4' : 'e.g. 4.8.0'} /></div><button className="button primary wizard-submit" disabled={isSubmitting}>{isSubmitting ? 'Saving readiness…' : selected.endpoint ? 'Update setup' : 'Start readiness check'} <ArrowRight size={15} /></button>{message && <p className="wizard-message" role="status"><Check size={14} /> {message}</p>}</form><div className="wizard-footer"><span><KeyRound size={13} /> Credentials are added in the next step</span><a href="https://docs.velociraptor.app/" target="_blank" rel="noreferrer">Integration docs <ExternalLink size={12} /></a></div></div></section><section className="setup-next"><div><span className="next-icon"><KeyRound size={16} /></span><div><p className="eyebrow">Up next</p><strong>Service identity &amp; access</strong><small>Least-privilege credentials, TLS verification, and read-only health</small></div></div><span className="next-locked"><LockKeyhole size={13} /> Locked until server readiness</span></section></main>
 }

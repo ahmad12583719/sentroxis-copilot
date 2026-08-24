@@ -25,6 +25,7 @@ export default function VelociraptorInstaller() {
 
   useEffect(() => {
     fetch('/api/velociraptor/catalog').then((response) => response.ok ? response.json() : Promise.reject(new Error('Catalog unavailable'))).then((data) => {
+      if (!Array.isArray(data.assets) || !data.assets.length) throw new Error('Catalog unavailable')
       setCatalog(data)
       setPlatform(data.host_platform || data.assets[0]?.platform || 'linux-amd64')
     }).catch(() => {})

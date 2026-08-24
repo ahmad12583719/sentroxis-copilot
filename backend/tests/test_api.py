@@ -7,8 +7,11 @@ from backend import main
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setenv("SENTROXIS_DEV_MODE", "false")
     main.init_db()
     with TestClient(main.app) as test_client:
+        registered = test_client.post("/api/auth/register", json={"name": "Test Analyst", "email": "test@example.com", "password": "strong-test-password"})
+        assert registered.status_code == 201
         yield test_client
 
 
@@ -26,10 +29,23 @@ def load_alert(client):
     return response.json()
 
 
+def test_authentication_lifecycle(client):
+    status = client.get("/api/auth/status")
+    assert status.status_code == 200
+    assert status.json()["authenticated"] is True
+    logout = client.post("/api/auth/logout")
+    assert logout.status_code == 200
+    assert logout.json()["authenticated"] is False
+    login = client.post("/api/auth/login", json={"email": "test@example.com", "password": "strong-test-password"})
+    assert login.status_code == 200
+    assert login.json()["user"]["role"] == "admin"
+
+
 def test_health_is_public(client):
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "operational"
+    assert response.json()["mode"] == "authenticated-read-only"
 
 
 def test_ingest_analysis_and_investigation_flow(client):

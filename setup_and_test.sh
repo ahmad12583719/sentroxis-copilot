@@ -27,12 +27,22 @@ cd "$ROOT_DIR"
 printf '\n==> Running backend tests\n'
 PYTHONPATH="$ROOT_DIR" pytest -q backend/tests
 
-printf '\n==> Running frontend tests\n'
+printf '\n==> Running frontend lint\n'
 cd frontend
+npm run lint
+
+printf '\n==> Running frontend tests\n'
 npm test -- --run
+
+printf '\n==> Building frontend\n'
+npm run build
 cd "$ROOT_DIR"
 
-printf '\n==> All tests passed. Starting development servers\n'
+printf '\n==> Running shell and whitespace checks\n'
+bash -n start.sh setup_and_test.sh
+git diff --check
+
+printf '\n==> All validation checks passed. Starting development servers\n'
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
 }
