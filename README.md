@@ -8,17 +8,17 @@ The repository is intentionally **read-only-first**. Demo telemetry is treated a
 
 ```mermaid
 flowchart LR
-  Analyst[ SOC analyst ] --> UI[ React + Vite SOC workspace ]
-  UI -->|bounded JSON API| API[ FastAPI API boundary ]
-  API --> Auth[ Auth adapter / RBAC ]
-  API --> Norm[ Normalization services ]
-  Norm --> Wazuh[ Wazuh alerts ]
-  Norm --> Vel[ Velociraptor evidence ]
-  API --> MITRE[ MITRE correlation engine ]
-  API --> AI[ Advisory co-pilot ]
-  API --> DB[(SQLite case + audit store)]
-  AI -->|citations only| UI
-  API --> Audit[ Audit events ]
+  Analyst["SOC analyst"] --> UI["React Vite SOC workspace"]
+  UI -->|"bounded JSON API"| API["FastAPI API boundary"]
+  API --> Auth["Auth adapter and RBAC"]
+  API --> Norm["Normalization services"]
+  Norm --> Wazuh["Wazuh alerts"]
+  Norm --> Vel["Velociraptor evidence"]
+  API --> MITRE["MITRE correlation engine"]
+  API --> AI["Advisory co-pilot"]
+  API --> DB[("SQLite case and audit store")]
+  AI -->|"citations only"| UI
+  API --> Audit["Audit events"]
 ```
 
 ```mermaid
@@ -30,14 +30,14 @@ sequenceDiagram
   participant C as Co-pilot
   participant H as Human analyst
 
-  W->>N: Alert payload (untrusted)
+  W->>N: Alert payload untrusted
   N->>M: Stable internal Alert model
-  M-->>A: Tactic, technique, confidence
+  M-->>A: Tactic technique confidence
   A->>C: Minimum required alert context
-  C-->>A: Structured advisory with evidence refs
-  A-->>H: Summary, citations, next read-only step
-  H->>A: Create investigation / propose action
-  A-->>H: Audit-linked result; no automatic execution
+  C-->>A: Structured advisory with evidence references
+  A-->>H: Summary citations and read-only next step
+  H->>A: Create investigation or propose action
+  A-->>H: Audit linked result with no automatic execution
 ```
 
 ## Repository layout
