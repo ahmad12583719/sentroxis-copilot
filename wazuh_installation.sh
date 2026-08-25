@@ -253,6 +253,59 @@ PY
   chmod 600 "$compose.sentroxis-backup" "$users.sentroxis-backup" "$dashboard_api.sentroxis-backup"
 }
 
+configure_local_proxy() {
+  (( DRY_RUN )) && { log "DRY-RUN: would configure the local HTTPS proxy for the embedded Wazuh dashboard."; return; }
+  cat > docker-compose.sentroxis.yml <<'YAML'
+services:
+  wazuh.dashboard:
+    ports: []
+  wazuh.dashboard_proxy:
+    image: nginx:1.27-alpine
+    hostname: wazuh.dashboard_proxy
+    restart: always
+    ports:
+      - "443:443"
+    volumes:
+      - ./config/wazuh_dashboard/sentroxis-nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem:/etc/nginx/certs/wazuh-dashboard.pem:ro
+      - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem:/etc/nginx/certs/wazuh-dashboard-key.pem:ro
+    depends_on:
+      - wazuh.dashboard
+YAML
+  cat > config/wazuh_dashboard/sentroxis-nginx.conf <<'NGINX'
+server {
+    listen 443 ssl;
+    server_name _;
+
+    ssl_certificate /etc/nginx/certs/wazuh-dashboard.pem;
+    ssl_certificate_key /etc/nginx/certs/wazuh-dashboard-key.pem;
+
+    # The upstream Wazuh dashboard uses SAMEORIGIN, which blocks the local
+    # Sentroxis iframe because the development frontend uses port 5173.
+    # This scoped local proxy permits only local Sentroxis origins.
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Content-Security-Policy;
+    add_header Content-Security-Policy "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*" always;
+
+    location / {
+        proxy_pass https://wazuh.dashboard:5601;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+NGINX
+}
+
+compose() {
+  docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml "$@"
+}
+
 generate_certificates() {
   [[ -d config/wazuh_indexer_ssl_certs ]] && [[ -f config/wazuh_indexer_ssl_certs/root-ca.pem ]] && { log "Wazuh TLS certificates already exist; preserving them."; return; }
   (( DRY_RUN )) && { log "DRY-RUN: would generate Wazuh self-signed certificates with the official generator."; return; }
@@ -263,7 +316,8 @@ initialize_indexer_security() {
   log "Initializing Wazuh indexer security configuration."
   local attempt
   for attempt in {1..3}; do
-    if docker compose exec -T wazuh.indexer bash -lc '
+    if       compose exec -T wazuh.indexer bash -lc '
+
       export JAVA_HOME="/usr/share/wazuh-indexer/jdk"
       export OPENSEARCH_JAVA_HOME="$JAVA_HOME"
       export PATH="$JAVA_HOME/bin:$PATH"
@@ -288,14 +342,14 @@ initialize_indexer_security() {
 
 validate_stack() {
   (( DRY_RUN )) && { log "DRY-RUN: would run docker compose config and health checks."; return; }
-  docker compose config >/dev/null || fatal "Generated Compose configuration is invalid."
+  compose config >/dev/null || fatal "Generated Compose configuration is invalid."
   # Bootstrap the indexer before starting dashboard and manager. The official
   # image entrypoint intentionally leaves securityadmin disabled by default.
-  docker compose up -d wazuh.indexer
+  compose up -d wazuh.indexer
   initialize_indexer_security
   # Recreate dependent services after securityadmin so dashboard migrations do
   # not retain the pre-bootstrap 503 state from an earlier failed attempt.
-  docker compose up -d --force-recreate wazuh.manager wazuh.dashboard
+  compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
   log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
   local api_code=""
@@ -306,7 +360,7 @@ validate_stack() {
     if [[ "$api_code" == "401" && "$dashboard_code" =~ ^[2345][0-9][0-9]$ ]]; then break; fi
     sleep 5
   done
-  docker compose ps
+  compose ps
   if [[ "$api_code" == "401" ]]; then
     log "Wazuh API is reachable and correctly requires authentication (HTTP 401)."
   elif [[ "$api_code" =~ ^[2345][0-9][0-9]$ ]]; then
@@ -320,6 +374,7 @@ validate_stack() {
     warn "Wazuh dashboard is not ready; inspect: docker compose logs --tail=200 wazuh.dashboard wazuh.indexer"
   fi
   log "Dashboard: https://$(hostname -I | awk '{print $1}')/ (self-signed certificate warning is expected for MVP/private-LAN use)."
+  log "Sentroxis iframe access: local proxy enabled on the same HTTPS endpoint."
   log "API bind address: $WAZUH_API_BIND_ADDRESS:55000. Keep this port private and place it behind a firewall or private network for the secondary node."
 }
 
@@ -334,6 +389,7 @@ main() {
   prepare_stack
   configure_credentials
   generate_certificates
+  configure_local_proxy
   validate_stack
   log "Wazuh installation completed. No active response or endpoint enrollment was enabled."
 }

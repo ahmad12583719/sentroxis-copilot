@@ -6,6 +6,7 @@ cd "$ROOT_DIR"
 
 WAZUH_DIR="${WAZUH_HOME:-$ROOT_DIR/.wazuh}"
 WAZUH_COMPOSE="$WAZUH_DIR/single-node/docker-compose.yml"
+WAZUH_OVERRIDE="$WAZUH_DIR/single-node/docker-compose.sentroxis.yml"
 run_privileged() {
   if [[ $EUID -eq 0 ]]; then
     "$@"
@@ -19,12 +20,12 @@ start_wazuh() {
     printf '==> Skipping Wazuh startup because SENTROXIS_SKIP_WAZUH=1\n'
     return
   fi
-  [[ -f "$WAZUH_COMPOSE" ]] || {
-    printf 'ERROR: Wazuh is not installed for this checkout. Run: sudo ./wazuh_installation.sh\n' >&2
+  [[ -f "$WAZUH_COMPOSE" && -f "$WAZUH_OVERRIDE" ]] || {
+    printf '%s\n' 'ERROR: Wazuh is not installed or has no Sentroxis proxy configuration. Run: sudo ./wazuh_installation.sh' >&2
     exit 1
   }
   printf '==> Starting installed Wazuh services\n'
-  run_privileged docker compose -f "$WAZUH_COMPOSE" up -d
+  run_privileged docker compose -f "$WAZUH_COMPOSE" -f "$WAZUH_OVERRIDE" up -d
 }
 
 start_wazuh
