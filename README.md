@@ -1,205 +1,143 @@
 # Sentroxis Copilot
 
-Sentroxis Copilot is a production-oriented incident-response workspace for security operations teams. It presents Wazuh signals, Velociraptor evidence workflows, MITRE ATT&CK correlation, and an evidence-grounded AI advisory surface in one dark SOC command center.
+Sentroxis Copilot is an incident-response workspace that brings Wazuh security telemetry, endpoint investigation workflows, MITRE ATT&CK context, and an advisory AI co-pilot into one authenticated interface. This repository currently contains the **Wazuh installation and integration work** plus the existing Velociraptor setup area, which is intentionally handed off to a separate contributor.
 
-The repository is intentionally **read-only-first**. Demo telemetry is treated as untrusted data, AI output is advisory-only, and every future containment action must remain behind server-side authorization, explicit approval, deterministic policy checks, and an audit record.
+> **Current project boundary:** Wazuh is implemented and documented through installation and startup. Velociraptor implementation, service startup, API behavior, and remaining Velociraptor documentation belong to the contributor assigned to that component.
 
-## Architecture
+## Current user workflow
 
-```mermaid
-flowchart LR
-  Analyst["SOC analyst"] --> UI["React Vite SOC workspace"]
-  UI -->|"bounded JSON API"| API["FastAPI API boundary"]
-  API --> Auth["Auth adapter and RBAC"]
-  API --> Norm["Normalization services"]
-  Norm --> Wazuh["Wazuh alerts"]
-  Norm --> Vel["Velociraptor evidence"]
-  API --> MITRE["MITRE correlation engine"]
-  API --> AI["Advisory co-pilot"]
-  API --> DB[("SQLite case and audit store")]
-  AI -->|"citations only"| UI
-  API --> Audit["Audit events"]
+The intended single-machine workflow is deliberately staged. A user clones the repository, installs Wazuh separately, completes the separate Velociraptor setup owned by the Velociraptor contributor, and then starts Sentroxis.
+
+```bash
+git clone https://github.com/ahmad12583719/sentroxis-copilot.git
+cd sentroxis-copilot
+
+# Stage 1: install and configure Wazuh.
+sudo ./wazuh_installation.sh
+
+# Stage 2: the Velociraptor contributor’s setup process goes here.
+# Do not run or modify that process as part of the Wazuh installation.
+
+# Stage 3: start Sentroxis after the required infrastructure is ready.
+./startup.sh
 ```
 
-```mermaid
-sequenceDiagram
-  participant W as Wazuh
-  participant N as Normalizer
-  participant A as API
-  participant M as MITRE engine
-  participant C as Co-pilot
-  participant H as Human analyst
+`wazuh_installation.sh` is the only Wazuh installation entrypoint. `startup.sh` assumes Wazuh is already installed; it starts the project-managed Wazuh services, validates the Sentroxis application, and starts the backend and frontend. The legacy `start.sh` file remains a compatibility wrapper that delegates to `startup.sh`.
 
-  W->>N: Alert payload untrusted
-  N->>M: Stable internal Alert model
-  M-->>A: Tactic technique confidence
-  A->>C: Minimum required alert context
-  C-->>A: Structured advisory with evidence references
-  A-->>H: Summary citations and read-only next step
-  H->>A: Create investigation or propose action
-  A-->>H: Audit linked result with no automatic execution
+## Wazuh installation
+
+The installer downloads the pinned Wazuh Docker deployment, currently Wazuh 4.7.5, into a hidden `.wazuh` directory beside the cloned project. The user does not need to manage that directory manually. It creates the single-node Wazuh stack, generates or preserves TLS certificates, applies strong non-default credentials, initializes the OpenSearch security database, configures the Wazuh Manager API credentials in both Manager and Dashboard configuration, and verifies service readiness.
+
+The installer also creates a project-managed Nginx TLS proxy in front of the Wazuh Dashboard. This proxy allows the native Wazuh dashboard to be displayed in Sentroxis while preserving the normal standalone dashboard URL. The proxy owns host port 443; the dashboard container itself remains internal on port 5601.
+
+The installer requires Linux with Docker Engine and the Compose plugin. It validates the SRS-oriented resource requirements before a real installation, including available storage, memory, x86-64 architecture, and the Wazuh/OpenSearch JVM setting. It does not enroll endpoints, enable active response, modify Velociraptor, or install Velociraptor.
+
+### Wazuh credentials
+
+The installer prompts for three separate credentials: the Wazuh indexer `admin` password, the Wazuh dashboard password, and the Wazuh Server API password. Each password must be at least 20 characters and contain uppercase and lowercase letters, a number, and a special character. Use different passwords for each service. Never place passwords in Git, URLs, screenshots, issue reports, or pasted terminal output.
+
+If a password has been exposed, rerun the installer and replace it. The installer updates the indexer users file, Compose environment values, and the Dashboard’s Wazuh API configuration together.
+
+### Wazuh locations and ports
+
+| Component | Location or endpoint | Purpose |
+|---|---|---|
+| Wazuh project data | `<clone>/\.wazuh/` | Project-local Compose deployment, certificates, and configuration |
+| Wazuh Dashboard | `https://localhost/` | Native dashboard and the source used by the Sentroxis Wazuh tab |
+| Sentroxis frontend | `https://localhost:5173` | Local HTTPS development frontend |
+| Sentroxis backend | `http://localhost:8000` | FastAPI application API |
+| Wazuh Manager API | `https://127.0.0.1:55000` by default | Local API endpoint used for health verification |
+| Wazuh indexer | Docker network and port 9200 | Internal OpenSearch-compatible storage |
+| Agent and event ports | 1514, 1515, and 514/UDP | Wazuh telemetry and agent communication |
+
+The local frontend certificate is generated automatically by `startup.sh` under `runtime/sentroxis-dev-tls/`. The first browser visit to `https://localhost:5173` may require accepting a local self-signed certificate warning.
+
+## Starting the application
+
+After Wazuh has been installed and the separate Velociraptor contributor has completed the required setup, start Sentroxis with:
+
+```bash
+cd /path/to/sentroxis-copilot
+./startup.sh
 ```
 
-## Repository layout
+The script recreates the Python virtual environment, installs backend dependencies, installs frontend dependencies, runs backend and frontend validation, builds the frontend, starts the installed Wazuh Compose stack, and launches FastAPI and Vite over local development endpoints. It does not install Wazuh and it does not configure or start Velociraptor.
+
+Open the application at:
+
+```text
+https://localhost:5173
+```
+
+The first authenticated workspace account is created through the application login screen. The current frontend exposes four primary tabs: **Wazuh**, **Velociraptor**, **Agent management**, and **AI co-pilot**. The Wazuh tab contains the native Wazuh dashboard frame, Wazuh alert summaries, and machine telemetry cards. The Velociraptor tab is reserved for the separate contributor’s implementation. Agent management currently contains the Wazuh enrollment area and does not execute endpoint enrollment automatically.
+
+## Fresh installation reset
+
+For a complete local reset, stop the project and Wazuh services before deleting files. The `down -v` form permanently deletes Wazuh Docker volumes and indexed event data.
+
+```bash
+cd "$HOME/Desktop/project"
+
+if [ -f "$HOME/Desktop/project/sentroxis-copilot/.wazuh/single-node/docker-compose.yml" ]; then
+  sudo docker compose \
+    -f "$HOME/Desktop/project/sentroxis-copilot/.wazuh/single-node/docker-compose.yml" \
+    -f "$HOME/Desktop/project/sentroxis-copilot/.wazuh/single-node/docker-compose.sentroxis.yml" \
+    down -v || true
+fi
+
+sudo rm -rf -- "$HOME/Desktop/project/sentroxis-copilot/.wazuh"
+rm -rf -- "$HOME/Desktop/project/sentroxis-copilot"
+
+git clone https://github.com/ahmad12583719/sentroxis-copilot.git
+cd sentroxis-copilot
+sudo ./wazuh_installation.sh
+# Complete the separate Velociraptor setup here.
+./startup.sh
+```
+
+Do not delete `.wazuh` while containers are running. Do not use `down -v` unless indexed Wazuh data and certificates are intentionally disposable.
+
+## Repository structure
 
 ```text
 sentroxis-copilot/
 ├── README.md
-├── startup.sh
 ├── wazuh_installation.sh
+├── startup.sh
+├── start.sh
 ├── backend/
-│   ├── main.py
-│   ├── requirements.txt
-│   ├── core/
-│   │   ├── auth.py
-│   │   ├── llm_agent.py
-│   │   ├── mitre_engine.py
-│   │   └── models.py
-│   ├── ingestion/
-│   │   ├── velociraptor_service.py
-│   │   └── wazuh_service.py
-│   └── tests/
-│       ├── test_api.py
-│       └── test_ingestion.py
-└── frontend/
-    ├── package.json
-    ├── vite.config.js
-    └── src/
-        ├── components/
-        │   ├── AnimatedCard.jsx
-        │   └── Navbar.jsx
-        ├── pages/
-        │   ├── AIChat.jsx
-        │   ├── Dashboard.jsx
-        │   ├── Velociraptor.jsx
-        │   └── Wazuh.jsx
-        └── tests/App.test.jsx
+├── frontend/
+├── scripts/
+│   ├── 00_run_all_setup.py
+│   ├── 01_installation_files.py
+│   ├── 02_signup_credentials.py
+│   └── 03_setup_velociraptor.py
+└── docs/
+    └── velociraptor-contributor-readme.md
 ```
 
-## Local development
-
-The project targets Python 3.10+ and a current Node.js runtime. The backend requirement range uses Pydantic 2.12+ because that release line includes initial Python 3.14 support. If an earlier interrupted attempt left a partial environment, the setup script can be rerun safely because it removes and recreates `backend/.venv` before installation. The shortest path is:
-
-```bash
-sudo ./wazuh_installation.sh
-# Complete the separate Velociraptor wizard, then:
-chmod +x startup.sh
-./startup.sh
-```
-
-The Wazuh installer provisions the required Wazuh primary-node stack first. After the separate Velociraptor wizard is complete, `startup.sh` starts the installed Wazuh and Velociraptor services, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `https://localhost:5173`. The first browser visit may show a local self-signed certificate warning; accept it for local testing. The Wazuh dashboard is available at `https://localhost/` and is embedded in the Wazuh tab.
-
-To run the services separately after setup:
-
-```bash
-source backend/.venv/bin/activate
-PYTHONPATH=. uvicorn backend.main:app --reload --port 8000
-```
-
-```bash
-cd frontend
-npm run dev
-```
-
-## Authenticated workflow
-
-Open the frontend and sign in with an authenticated workspace account. The first account can be created during initial setup and becomes the workspace administrator. The dashboard starts with honest empty states until Wazuh or Velociraptor is configured and authorized telemetry is ingested.
-
-Local password authentication is enabled for the workspace. The first account created through the login screen becomes the workspace administrator. Sessions use HTTP-only cookies, passwords are stored as PBKDF2-SHA256 hashes, and authentication records are persisted in SQLite. For production, place the database behind appropriate access controls and replace local authentication with an organization-managed identity provider.
-
-## API surface
-
-| Endpoint | Purpose | Mutating | Approval required |
-|---|---|---:|---:|
-| `GET /api/health` | Service health check | No | No |
-| `GET /api/alerts` | Bounded, filterable normalized alert list | No | No |
-| `POST /api/alerts/ingest` | Ingest and normalize an authorized Wazuh payload | Yes | Analyst authentication |
-| `GET /api/alerts/{id}/analysis` | Generate an advisory analysis | No | Analyst authentication |
-| `POST /api/investigations` | Create an investigation with an initial timeline event | Yes | Analyst authentication |
-| `POST /api/alerts/{id}/evidence` | Generate a bounded read-only evidence record | Yes | Analyst authentication |
-| `POST /api/chat` | Ask the advisory co-pilot a cited question | No | Analyst authentication |
-| `POST /api/actions/proposals` | Record an approval-gated response proposal | Yes | Analyst authentication |
-| `GET /api/audit` | Review audit events | No | Analyst authentication |
-
-## Security design notes
-
-The application keeps vendor-shaped payloads inside dedicated normalizers and exposes stable Pydantic models to the rest of the system. Inputs are bounded by field lengths, collection results are hashed, evidence includes provenance, and SQLite queries use parameter binding. CORS is explicit rather than wildcarded, and the demo service does not execute VQL, shell commands, or AI-generated instructions.
-
-For a production integration, replace the demo auth adapter with OIDC/JWT validation, separate Wazuh Server API and Indexer clients, use a least-privilege service account, enforce TLS verification and timeouts, add rate limits and structured request IDs, and migrate SQLite to a managed database with encrypted backups. Add a queue for ingestion volume, a secrets manager, signed webhook verification, tenant-aware authorization, and a durable evidence vault before handling production data.
-
-The co-pilot is deliberately structured around an advisory contract. Model output must be validated, cite alert/evidence references, and pass a deterministic policy layer before it could even become a proposal. A response proposal is never an execution request, and the API rejects proposals that do not explicitly require approval.
+The Wazuh installer and Wazuh startup path are independent of the scripts under `scripts/`. The Velociraptor scripts and their runtime files must remain independently testable and independently owned.
 
 ## Validation
 
-Backend tests cover Wazuh normalization, severity mapping, ATT&CK correlation, health, ingestion, analysis citations, investigation creation, evidence hashing, prompt-injection resistance, missing resources, and approval gates. Frontend tests cover the branded overview, navigation landmarks, key metrics, and the MITRE matrix. The UI includes reduced-motion handling, visible focus states, semantic headings, non-color severity labels, and explicit AI/advisory language.
+The repository’s current Wazuh-related changes are checked with:
 
 ```bash
-PYTHONPATH=. backend/.venv/bin/pytest -q backend/tests
-cd frontend && npm test -- --run && npm run build
+bash -n wazuh_installation.sh startup.sh start.sh
+cd frontend
+npm run lint
+npm test -- --run
+npm run build
 ```
 
-## GitHub Push Execution
+The frontend currently passes its tests and production build. Lint reports existing warnings but no errors. Wazuh container readiness must be verified on the target laptop because the sandbox cannot reproduce the user’s Docker host, certificates, and persistent volumes.
 
-From the repository root, run the following commands to create a new **public** repository and push the working tree:
+## Wazuh security boundaries
 
-```bash
-cd /home/ubuntu/sentroxis-copilot
-git init
-git add .
-git commit -m "Build Sentroxis Copilot incident response workspace"
-gh repo create sentroxis-copilot --public --source=. --remote=origin
-git push -u origin HEAD
-```
+Wazuh credentials are never committed. The installer uses separate indexer, dashboard, and Manager API credentials, applies bcrypt hashes to the indexer users file, preserves TLS certificates, and keeps the Manager API private by default. The project-managed dashboard proxy is intended for the local single-machine MVP and permits framing only through its controlled local endpoint; do not expose it publicly without replacing the self-signed certificates, tightening the frame policy, and placing the service behind appropriate network controls.
 
-## Step 1 project setup workflow
+The co-pilot remains advisory-only. It does not automatically deploy AI-generated Wazuh rules, execute active response, run shell commands, or enroll agents without an explicit future implementation and authorization boundary.
 
-The application now opens on the **Project setup** screen. It presents two separate server installation sections: **Wazuh Server** for detection and alert telemetry, and **Velociraptor Server** for endpoint evidence collection. Selecting either card opens its setup sequence; selecting Velociraptor displays the dedicated web wizard with endpoint, TLS verification, service identity, and read-only readiness steps.
+## Contributor handoff
 
-The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
-
-For a local console deployment, install Wazuh first with `sudo ./wazuh_installation.sh`, then complete the separate Velociraptor wizard using the existing scripts. After both infrastructure components are installed and configured, run `./startup.sh`. The startup workflow starts the installed Wazuh services, starts the configured Velociraptor server, installs or verifies Sentroxis application dependencies, runs validation, and starts the backend and frontend. Wazuh installation requires `sudo` and prompts for three strong credentials on the first run. Set `SENTROXIS_SKIP_WAZUH=1` only when Wazuh is intentionally managed outside this checkout.
-
-Velociraptor remains a separate workflow owned by its existing setup scripts and guide. The Wazuh integration does not modify, install, or configure Velociraptor. See the [four-script Velociraptor setup guide](docs/velociraptor-setup.md) for that operator flow and its deployment boundaries.
-
-| Setup item | Current behavior |
-|---|---|
-| Wazuh Server | Automatically installed and started from the cloned checkout by `start.sh`; manager, indexer, dashboard, credentials, certificates, and health readiness are handled by `wazuh_installation.sh` |
-| Velociraptor Server | HTTPS endpoint, TLS verification, service identity, and bounded collection readiness sequence |
-| Credentials | Not accepted in URLs; reserved for the next authenticated setup step |
-| Remote installation | Not executed by the browser wizard; readiness state only |
-| Audit | Readiness start events are written to the backend audit store |
-
-## Velociraptor installation workflow
-
-The Project Setup screen now includes a complete, approval-gated Velociraptor flow. The backend selects a platform from an allowlisted official release catalog, downloads the matching Velocidex GitHub asset, verifies its published SHA-256 digest, and stores the verified binary under the ignored `backend/runtime/velociraptor/` directory.
-
-After verification, both the browser flow and the four-script console workflow use the official binary to generate a self-signed configuration from bounded operator-selected values. The frontend binds at `8010`; the same Sentroxis login email and password become the initial Velociraptor Basic-authentication account without persisting plaintext credentials; and the official client configuration command creates `client.config.yaml` with the supplied server IP or DNS name rather than `localhost`. The final **Run Velociraptor server** action requires separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
-
-The Velociraptor implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. The Wazuh installer does install Docker and the host bcrypt dependency when required, because Wazuh is a required privileged primary-node component. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
-
-After pulling the repository, install the infrastructure components separately, then start the application:
-
-```bash
-cd ~/Desktop/project/sentroxis-copilot
-sudo ./wazuh_installation.sh
-# Run the existing Velociraptor wizard separately.
-./scripts/00_run_all_setup.py
-./startup.sh
-```
-
-`startup.sh` starts already-installed Wazuh and Velociraptor services, installs or verifies application dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass. `start.sh` remains as a compatibility wrapper that delegates to `startup.sh`.
-
-### References
-
-[1]: https://docs.velociraptor.app/downloads/ "Velociraptor official downloads"
-[2]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor official quickstart"
-
-### Velociraptor runtime API
-
-| Endpoint | Purpose | Safety boundary |
-|---|---|---|
-| `GET /api/velociraptor/catalog` | Return the official allowlisted release assets for the detected host | No arbitrary URLs |
-| `POST /api/velociraptor/prepare` | Download and SHA-256 verify the selected release asset | Explicit confirmation and fixed asset map |
-| `POST /api/velociraptor/config/generate` | Generate approved self-signed server and client configuration files | Fixed frontend port 8010, current-password confirmation, no free-form commands |
-| `POST /api/velociraptor/run` | Start `frontend --config` after config creation | Explicit confirmation and generated config required |
-| `POST /api/velociraptor/stop` | Stop the process started by the service | Analyst authorization |
+The Velociraptor contributor should read [`docs/velociraptor-contributor-readme.md`](docs/velociraptor-contributor-readme.md) before changing Velociraptor files. That document describes the current Wazuh boundary, the existing Velociraptor scripts, the expected runtime locations, the frontend integration points, and the startup contract that must be respected.
