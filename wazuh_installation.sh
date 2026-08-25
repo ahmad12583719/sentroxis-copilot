@@ -175,6 +175,10 @@ prepare_stack() {
     git clone --depth 1 --branch "$WAZUH_VERSION" "$OFFICIAL_REPO" "$WAZUH_HOME"
   fi
   [[ -f "$WAZUH_HOME/single-node/docker-compose.yml" ]] || fatal "Pinned Wazuh release lacks the expected single-node Compose files."
+  # Previous failed runs may have left malformed customized files behind. The
+  # installer owns these two files, so restore only them from the pinned tag;
+  # certificates, volumes, and other operator files remain untouched.
+  git -C "$WAZUH_HOME" checkout -- single-node/docker-compose.yml single-node/config/wazuh_indexer/internal_users.yml
   cd "$WAZUH_HOME/single-node"
 }
 
