@@ -4,6 +4,34 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+WAZUH_DIR="${WAZUH_HOME:-$ROOT_DIR/.wazuh}"
+WAZUH_COMPOSE="$WAZUH_DIR/single-node/docker-compose.yml"
+
+run_privileged() {
+  if [[ $EUID -eq 0 ]]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
+}
+
+ensure_wazuh() {
+  if [[ "${SENTROXIS_SKIP_WAZUH:-0}" == "1" ]]; then
+    printf '==> Skipping Wazuh setup because SENTROXIS_SKIP_WAZUH=1\n'
+    return
+  fi
+
+  if [[ ! -f "$WAZUH_COMPOSE" ]]; then
+    printf '==> Wazuh is not installed for this checkout; starting the project-local installer\n'
+    run_privileged "$ROOT_DIR/wazuh_installation.sh"
+  else
+    printf '==> Starting the project-local Wazuh services\n'
+    run_privileged docker compose -f "$WAZUH_COMPOSE" up -d
+  fi
+}
+
+ensure_wazuh
+
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
   printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2
   exit 1
@@ -39,7 +67,7 @@ npm run build
 cd "$ROOT_DIR"
 
 printf '\n==> Running shell and whitespace checks\n'
-bash -n start.sh setup_and_test.sh
+bash -n start.sh setup_and_test.sh wazuh_installation.sh
 git diff --check
 
 printf '\n==> All validation checks passed. Starting development servers\n'

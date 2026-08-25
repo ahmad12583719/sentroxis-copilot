@@ -154,11 +154,13 @@ The application now opens on the **Project setup** screen. It presents two separ
 
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
-For a local console deployment, use the four-script workflow beginning with [`scripts/00_run_all_setup.py`](scripts/00_run_all_setup.py). The master runner invokes verified binary preparation, Sentroxis sign-up or credential verification, and self-signed Velociraptor server/client configuration in order. It fixes the frontend client port at `8010`, uses the same Sentroxis login email and password for the initial Velociraptor administrator without persisting plaintext credentials, and prints the saved `client.config.yaml` path. See the [four-script Velociraptor setup guide](docs/velociraptor-setup.md) for the operator flow and deployment boundaries.
+For a local console deployment, run `./start.sh` from the cloned repository. The setup workflow automatically installs and starts the Wazuh primary-node stack for that checkout through `wazuh_installation.sh`; the Wazuh files are kept beside the project and no `/opt` path is required. The workflow then installs the Sentroxis application dependencies, runs validation, and starts the application. Wazuh installation requires `sudo` and prompts for three strong credentials on the first run. Set `SENTROXIS_SKIP_WAZUH=1` only when Wazuh is intentionally managed outside this checkout.
+
+Velociraptor remains a separate workflow owned by its existing setup scripts and guide. The Wazuh integration does not modify, install, or configure Velociraptor. See the [four-script Velociraptor setup guide](docs/velociraptor-setup.md) for that operator flow and its deployment boundaries.
 
 | Setup item | Current behavior |
 |---|---|
-| Wazuh Server | Manager endpoint, Indexer endpoint, service identity, and read-only health readiness sequence |
+| Wazuh Server | Automatically installed and started from the cloned checkout by `start.sh`; manager, indexer, dashboard, credentials, certificates, and health readiness are handled by `wazuh_installation.sh` |
 | Velociraptor Server | HTTPS endpoint, TLS verification, service identity, and bounded collection readiness sequence |
 | Credentials | Not accepted in URLs; reserved for the next authenticated setup step |
 | Remote installation | Not executed by the browser wizard; readiness state only |
@@ -170,7 +172,7 @@ The Project Setup screen now includes a complete, approval-gated Velociraptor fl
 
 After verification, both the browser flow and the four-script console workflow use the official binary to generate a self-signed configuration from bounded operator-selected values. The frontend binds at `8010`; the same Sentroxis login email and password become the initial Velociraptor Basic-authentication account without persisting plaintext credentials; and the official client configuration command creates `client.config.yaml` with the supplied server IP or DNS name rather than `localhost`. The final **Run Velociraptor server** action requires separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
 
-The implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
+The Velociraptor implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. The Wazuh installer does install Docker and the host bcrypt dependency when required, because Wazuh is a required privileged primary-node component. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
 
 After pulling the repository, the entire application can be started with one command:
 
@@ -179,7 +181,7 @@ cd ~/Desktop/project/sentroxis-copilot
 ./start.sh
 ```
 
-`start.sh` delegates to `setup_and_test.sh`, which installs dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass.
+`start.sh` delegates to `setup_and_test.sh`, which first ensures the project-local Wazuh services are installed or running, then installs dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass.
 
 ### References
 
