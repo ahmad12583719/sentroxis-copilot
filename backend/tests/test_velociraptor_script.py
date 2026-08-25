@@ -67,3 +67,37 @@ def test_master_runner_passes_password_only_through_standard_input(monkeypatch):
     assert captured["input"] == "strong-test-password\n"
     assert captured["text"] is True
     assert "strong-test-password" not in captured["command"]
+
+
+def test_signup_rejects_short_password_before_creating_database(tmp_path, monkeypatch):
+    db_path = tmp_path / "sentroxis.db"
+    handoff_path = tmp_path / "identity.json"
+    monkeypatch.setattr(signup_script.sys, "argv", [
+        "02_signup_credentials.py",
+        "--db-path", str(db_path),
+        "--handoff-path", str(handoff_path),
+        "--name", "Test Analyst",
+        "--email", "test@example.com",
+    ])
+    monkeypatch.setattr(signup_script.getpass, "getpass", lambda _: "too-short")
+
+    assert signup_script.main() == 2
+    assert not db_path.exists()
+    assert not handoff_path.exists()
+
+
+def test_signup_discovers_existing_account_for_safe_reuse(tmp_path):
+    db_path = tmp_path / "sentroxis.db"
+    import sqlite3
+
+    with sqlite3.connect(db_path) as db:
+        signup_script.ensure_users_table(db)
+        db.execute(
+            "INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            ("usr-test", "Test Analyst", "test@example.com", signup_script.password_hash("strong-test-password"), "admin", "2026-01-01T00:00:00+00:00"),
+        )
+
+    account = signup_script.existing_account(db_path)
+
+    assert account is not None
+    assert account[1:3] == ("Test Analyst", "test@example.com")

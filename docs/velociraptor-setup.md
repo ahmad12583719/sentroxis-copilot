@@ -23,7 +23,9 @@ chmod 700 scripts/00_run_all_setup.py scripts/01_installation_files.py \
 ./scripts/00_run_all_setup.py
 ```
 
-The master runner asks for the account, server, filesystem, certificate, network, and GUI choices once. It passes the password to Steps 2 and 3 through process standard input only; it does not write the password to a file or place it in a command-line argument.
+The master runner asks for the account, server, filesystem, certificate, network, and GUI choices once. It passes the password to Steps 2 and 3 through process standard input only; it does not write the password to a file or place it in a command-line argument. Sentroxis passwords must be **12–128 characters**, matching the application login policy.
+
+If `backend/sentroxis.db` already contains an initial account, Step 2 detects it and shows its email as the default. Press Enter to reuse that account’s email, then enter its existing password. The workflow will not overwrite or silently replace an existing account with a different email.
 
 ## Required operator choices
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,22 @@ def run(command: list[str], password: str | None = None) -> None:
     subprocess.run(command, cwd=ROOT, input=(password + "\n") if password is not None else None, text=True, check=True)
 
 
+def existing_identity() -> tuple[str, str] | None:
+    """Read the one local account, if any, without changing the database."""
+    db_path = ROOT / "backend" / "sentroxis.db"
+    if not db_path.is_file():
+        return None
+    try:
+        with sqlite3.connect(db_path) as db:
+            has_users = db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
+            if not has_users:
+                return None
+            row = db.execute("SELECT name, email FROM users ORDER BY created_at LIMIT 1").fetchone()
+            return tuple(row) if row else None
+    except sqlite3.Error:
+        return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run all Sentroxis self-signed Velociraptor setup scripts.")
     parser.add_argument("--platform", default="auto", choices=["auto", "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"])
@@ -49,9 +66,16 @@ def main() -> int:
         return error.returncode or 1
 
     print("\n==> Step 2/3: create or verify Sentroxis account")
-    name = ask("Sentroxis display name")
-    email = ask("Sentroxis login email").lower()
-    password = getpass.getpass("Sentroxis password: ")
+    account = existing_identity()
+    if account:
+        existing_name, existing_email = account
+        print(f"Existing Sentroxis account detected: {existing_email}")
+        name = ask("Sentroxis display name", existing_name)
+        email = ask("Sentroxis login email", existing_email).lower()
+    else:
+        name = ask("Sentroxis display name")
+        email = ask("Sentroxis login email").lower()
+    password = getpass.getpass("Sentroxis password (minimum 12 characters): ")
     try:
         run([sys.executable, str(SCRIPTS / "02_signup_credentials.py"), "--name", name, "--email", email, "--password-stdin"], password)
     except subprocess.CalledProcessError as error:

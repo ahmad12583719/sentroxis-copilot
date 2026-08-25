@@ -50,7 +50,7 @@ def validate(name: str, email: str, password: str) -> tuple[str, str]:
     if "@" not in normalized_email or len(normalized_email) > 320:
         raise ValueError("Enter a valid email address")
     if not 12 <= len(password) <= 128:
-        raise ValueError("Password must be between 12 and 128 characters")
+        raise ValueError("Password must be between 12 and 128 characters. This matches the Sentroxis login policy.")
     return normalized_name, normalized_email
 
 
@@ -69,9 +69,29 @@ def ensure_users_table(db: sqlite3.Connection) -> None:
     )
 
 
+def existing_account(db_path: Path) -> tuple[str, str, str, str, str] | None:
+    """Return the local initial account without creating or modifying a database."""
+    if not db_path.is_file():
+        return None
+    try:
+        with sqlite3.connect(db_path) as db:
+            has_users = db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").fetchone()
+            if not has_users:
+                return None
+            row = db.execute("SELECT id, name, email, password_hash, role FROM users ORDER BY created_at LIMIT 1").fetchone()
+            return tuple(row) if row else None
+    except sqlite3.Error as error:
+        raise RuntimeError(f"Unable to inspect the Sentroxis account database: {error}") from error
+
+
 def secure_file(path: Path) -> None:
     if os.name == "posix":
         path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+
+def prompt_with_default(prompt: str, default: str) -> str:
+    value = input(f"{prompt} [{default}]: ").strip()
+    return value or default
 
 
 def main() -> int:
@@ -79,13 +99,27 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Step 2: create or verify the initial Sentroxis account.")
     parser.add_argument("--db-path", type=Path, default=root / "backend" / "sentroxis.db")
     parser.add_argument("--handoff-path", type=Path, default=root / "backend" / "runtime" / "setup_identity.json")
-    parser.add_argument("--name", help="Display name. Omit to enter it securely at runtime.")
-    parser.add_argument("--email", help="Login email. Omit to enter it securely at runtime.")
+    parser.add_argument("--name", help="Display name. Omit to enter it at runtime.")
+    parser.add_argument("--email", help="Login email. Omit to enter it at runtime.")
     parser.add_argument("--password-stdin", action="store_true", help="Read one password line from standard input; used by the master runner.")
     args = parser.parse_args()
 
-    name = args.name if args.name is not None else input("Sentroxis display name: ").strip()
-    email = args.email if args.email is not None else input("Sentroxis login email: ").strip()
+    db_path = args.db_path.expanduser().resolve()
+    try:
+        account = existing_account(db_path)
+    except RuntimeError as error:
+        print(f"ERROR: {error}")
+        return 1
+
+    if account:
+        account_id, existing_name, existing_email, existing_hash, role = account
+        print(f"Existing Sentroxis account detected: {existing_email}")
+        name = args.name if args.name is not None else prompt_with_default("Sentroxis display name", existing_name)
+        email = args.email if args.email is not None else prompt_with_default("Sentroxis login email", existing_email)
+    else:
+        name = args.name if args.name is not None else input("Sentroxis display name: ").strip()
+        email = args.email if args.email is not None else input("Sentroxis login email: ").strip()
+
     password = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else getpass.getpass("Sentroxis password: ")
     try:
         name, email = validate(name, email, password)
@@ -93,7 +127,10 @@ def main() -> int:
         print(f"ERROR: {error}")
         return 2
 
-    db_path = args.db_path.expanduser().resolve()
+    if account and email != existing_email:
+        print(f"ERROR: The existing initial account is {existing_email}. Re-run with that email and its password; this script will not overwrite it.")
+        return 1
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as db:
         ensure_users_table(db)
@@ -101,12 +138,13 @@ def main() -> int:
         count = db.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if row:
             if not password_matches(password, row[2]):
-                print("ERROR: Password does not match the existing Sentroxis account")
+                print("ERROR: Password does not match the existing Sentroxis account. Use the password for this email; the account was not changed.")
                 return 1
             account_id, display_name, role = row[0], row[1], row[3]
             print(f"Verified existing Sentroxis account: {email}")
         elif count:
-            print("ERROR: An initial Sentroxis account already exists. Sign in with that account instead.")
+            # This branch is defensive for concurrent changes after the initial lookup.
+            print("ERROR: An initial Sentroxis account was created by another process. Re-run and use that account.")
             return 1
         else:
             account_id = f"usr-{secrets.token_hex(12)}"
