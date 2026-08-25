@@ -5,70 +5,65 @@ from pathlib import Path
 import pytest
 
 
-SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "setup_velociraptor.py"
-SPEC = importlib.util.spec_from_file_location("sentroxis_velociraptor_script", SCRIPT_PATH)
-assert SPEC and SPEC.loader
-setup_script = importlib.util.module_from_spec(SPEC)
-sys.modules[SPEC.name] = setup_script
-SPEC.loader.exec_module(setup_script)
+SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 
 
-def test_detect_asset_maps_known_linux_platform(monkeypatch):
-    monkeypatch.setattr(setup_script.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(setup_script.platform, "machine", lambda: "x86_64")
+def load_script(name: str, filename: str):
+    spec = importlib.util.spec_from_file_location(name, SCRIPTS_DIR / filename)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
-    asset = setup_script.detect_asset()
 
-    assert asset.filename == "velociraptor-v0.77.2-linux-amd64"
-    assert asset.executable_name == "velociraptor"
+installation_script = load_script("sentroxis_installation_files", "01_installation_files.py")
+signup_script = load_script("sentroxis_signup_credentials", "02_signup_credentials.py")
+setup_script = load_script("sentroxis_setup_velociraptor", "03_setup_velociraptor.py")
+runner_script = load_script("sentroxis_run_all_setup", "00_run_all_setup.py")
 
 
-def test_detect_asset_rejects_unsupported_platform(monkeypatch):
-    monkeypatch.setattr(setup_script.platform, "system", lambda: "FreeBSD")
-    monkeypatch.setattr(setup_script.platform, "machine", lambda: "amd64")
+def test_detected_platform_maps_known_linux_host(monkeypatch):
+    monkeypatch.setattr(installation_script.host_platform, "system", lambda: "Linux")
+    monkeypatch.setattr(installation_script.host_platform, "machine", lambda: "x86_64")
+
+    assert installation_script.detected_platform() == "linux-amd64"
+    assert installation_script.ASSETS["linux-amd64"].filename == "velociraptor-v0.77.2-linux-amd64"
+
+
+def test_detected_platform_rejects_unsupported_host(monkeypatch):
+    monkeypatch.setattr(installation_script.host_platform, "system", lambda: "FreeBSD")
+    monkeypatch.setattr(installation_script.host_platform, "machine", lambda: "amd64")
 
     with pytest.raises(RuntimeError, match="Unsupported host platform"):
-        setup_script.detect_asset()
+        installation_script.detected_platform()
 
 
-def test_replace_frontend_port_changes_only_frontend_section(tmp_path):
-    config = tmp_path / "server.config.yaml"
-    config.write_text(
-        "Client:\n"
-        "  server_urls:\n"
-        "    - https://example.test:8000/\n"
-        "Frontend:\n"
-        "  bind_address: 127.0.0.1\n"
-        "  bind_port: 8000\n"
-        "GUI:\n"
-        "  bind_port: 8889\n",
-        encoding="utf-8",
-    )
+def test_signup_password_hash_is_verifiable_and_not_plaintext():
+    stored = signup_script.password_hash("strong-test-password")
 
-    changed = setup_script.replace_frontend_port(config, 8010)
-
-    assert changed is True
-    content = config.read_text(encoding="utf-8")
-    assert "Frontend:\n  bind_address: 127.0.0.1\n  bind_port: 8010\n" in content
-    assert "https://example.test:8010/" in content
-    assert "GUI:\n  bind_port: 8889" in content
+    assert stored.startswith("pbkdf2_sha256$")
+    assert "strong-test-password" not in stored
+    assert signup_script.password_matches("strong-test-password", stored) is True
+    assert signup_script.password_matches("wrong-password", stored) is False
 
 
-def test_replace_frontend_port_rejects_missing_frontend_port(tmp_path):
-    config = tmp_path / "server.config.yaml"
-    config.write_text("Frontend:\n  bind_address: 127.0.0.1\n", encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="no numeric bind_port"):
-        setup_script.replace_frontend_port(config, 8010)
+def test_setup_step_enforces_fixed_frontend_port_and_valid_login_username():
+    assert setup_script.FRONTEND_PORT == 8010
+    assert setup_script.USERNAME_PATTERN.fullmatch("analyst@example.com")
+    assert not setup_script.USERNAME_PATTERN.fullmatch("invalid username")
 
 
-def test_dry_run_uses_default_frontend_port(monkeypatch, capsys, tmp_path):
-    monkeypatch.setattr(setup_script.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(setup_script.platform, "machine", lambda: "x86_64")
+def test_master_runner_passes_password_only_through_standard_input(monkeypatch):
+    captured = {}
 
-    result = setup_script.main(["--dry-run", "--install-dir", str(tmp_path)])
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
 
-    output = capsys.readouterr().out
-    assert result == 0
-    assert "Frontend port policy: 8010" in output
-    assert "No file was downloaded" in output
+    monkeypatch.setattr(runner_script.subprocess, "run", fake_run)
+    runner_script.run(["python", "step.py", "--password-stdin"], "strong-test-password")
+
+    assert captured["input"] == "strong-test-password\n"
+    assert captured["text"] is True
+    assert "strong-test-password" not in captured["command"]
