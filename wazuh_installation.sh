@@ -274,15 +274,17 @@ validate_stack() {
   # image entrypoint intentionally leaves securityadmin disabled by default.
   docker compose up -d wazuh.indexer
   initialize_indexer_security
-  docker compose up -d wazuh.manager wazuh.dashboard
-  log "Waiting for Wazuh containers to initialize (up to 180 seconds)."
+  # Recreate dependent services after securityadmin so dashboard migrations do
+  # not retain the pre-bootstrap 503 state from an earlier failed attempt.
+  docker compose up -d --force-recreate wazuh.manager wazuh.dashboard
+  log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
   local api_code=""
+  local dashboard_code=""
   for i in {1..36}; do
-    if docker compose ps --format json 2>/dev/null | grep -q 'running'; then
-      api_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1:55000/" 2>/dev/null || true)"
-      if [[ "$api_code" =~ ^[2345][0-9][0-9]$ ]]; then break; fi
-    fi
+    api_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1:55000/" 2>/dev/null || true)"
+    dashboard_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1/" 2>/dev/null || true)"
+    if [[ "$api_code" == "401" && "$dashboard_code" =~ ^[2345][0-9][0-9]$ ]]; then break; fi
     sleep 5
   done
   docker compose ps
@@ -292,6 +294,11 @@ validate_stack() {
     warn "Wazuh API returned HTTP $api_code; inspect authentication/configuration if requests fail."
   else
     warn "Wazuh API is not responding; inspect: docker compose logs --tail=200 wazuh.manager"
+  fi
+  if [[ "$dashboard_code" =~ ^[2345][0-9][0-9]$ ]]; then
+    log "Wazuh dashboard is reachable (HTTP $dashboard_code)."
+  else
+    warn "Wazuh dashboard is not ready; inspect: docker compose logs --tail=200 wazuh.dashboard wazuh.indexer"
   fi
   log "Dashboard: https://$(hostname -I | awk '{print $1}')/ (self-signed certificate warning is expected for MVP/private-LAN use)."
   log "API bind address: $WAZUH_API_BIND_ADDRESS:55000. Keep this port private and place it behind a firewall or private network for the secondary node."
