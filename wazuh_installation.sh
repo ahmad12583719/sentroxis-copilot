@@ -168,7 +168,7 @@ generate_bcrypt_hash() {
   local password="$1"
   # The official Wazuh indexer image ships the supported bcrypt utility. The
   # password is passed through stdin rather than exposed in process arguments.
-  printf '%s\n' "$password" | docker run --rm -i --entrypoint bash "wazuh/wazuh-indexer:${WAZUH_VERSION#v}" -c 'IFS= read -r password; plugins/opensearch-security/tools/hash.sh -p "$password"' | tail -n 1
+  printf '%s\n' "$password" | docker run --rm -i --entrypoint bash "wazuh/wazuh-indexer:${WAZUH_VERSION#v}" -c 'IFS= read -r password; bash plugins/opensearch-security/tools/hash.sh -p "$password"' | tail -n 1
 }
 
 configure_credentials() {
