@@ -13,8 +13,8 @@
 # response, or publish secrets. Run it on the Sentroxis primary Linux node.
 #
 # Usage:
-#   sudo ./scripts/wazuh_installation.sh
-#   sudo ./scripts/wazuh_installation.sh --dry-run
+#   sudo ./wazuh_installation.sh
+#   sudo ./wazuh_installation.sh --dry-run
 #
 set -Eeuo pipefail
 IFS=$'\n\t'
