@@ -243,10 +243,32 @@ generate_certificates() {
   docker compose -f generate-indexer-certs.yml run --rm generator
 }
 
+initialize_indexer_security() {
+  log "Initializing Wazuh indexer security configuration."
+  local attempt
+  for attempt in {1..3}; do
+    if docker compose exec -T wazuh.indexer bash -lc '
+      export CACERT="/usr/share/wazuh-indexer/certs/root-ca.pem"
+      export CERT="/usr/share/wazuh-indexer/certs/admin.pem"
+      export KEY="/usr/share/wazuh-indexer/certs/admin-key.pem"
+      bash /securityadmin.sh
+    '; then
+      log "Wazuh indexer security configuration initialized."
+      return
+    fi
+    (( attempt < 3 )) && sleep 10
+  done
+  fatal "Wazuh indexer security initialization failed; inspect: docker compose logs --tail=200 wazuh.indexer"
+}
+
 validate_stack() {
   (( DRY_RUN )) && { log "DRY-RUN: would run docker compose config and health checks."; return; }
   docker compose config >/dev/null || fatal "Generated Compose configuration is invalid."
-  docker compose up -d
+  # Bootstrap the indexer before starting dashboard and manager. The official
+  # image entrypoint intentionally leaves securityadmin disabled by default.
+  docker compose up -d wazuh.indexer
+  initialize_indexer_security
+  docker compose up -d wazuh.manager wazuh.dashboard
   log "Waiting for Wazuh containers to initialize (up to 180 seconds)."
   local i
   local api_code=""
