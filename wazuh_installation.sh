@@ -225,7 +225,7 @@ for line in lines:
         output.append(indent + '- ' + json.dumps(key + '=' + os.environ[key]) + '\n')
     elif re.match(r'^\s*-\s*["\']?OPENSEARCH_JAVA_OPTS(?::|=)', line):
         output.append(indent + '- ' + json.dumps('OPENSEARCH_JAVA_OPTS=' + os.environ['JVM_OPTS']) + '\n')
-    elif re.match(r'^\s*-\s*["\']?\S*:55000:55000["\']?\s*$', line):
+    elif '55000:55000' in line and re.match(r'^\s*-\s*["\']?[^\n]*55000:55000', line):
         output.append(indent + '- ' + json.dumps(os.environ['API_BIND_ADDRESS'] + ':55000:55000') + '\n')
     else:
         output.append(line)
@@ -246,14 +246,22 @@ validate_stack() {
   docker compose up -d
   log "Waiting for Wazuh containers to initialize (up to 180 seconds)."
   local i
+  local api_code=""
   for i in {1..36}; do
     if docker compose ps --format json 2>/dev/null | grep -q 'running'; then
-      if curl --silent --show-error --insecure --connect-timeout 3 "https://127.0.0.1:55000/" >/dev/null 2>&1; then break; fi
+      api_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1:55000/" 2>/dev/null || true)"
+      if [[ "$api_code" =~ ^[2345][0-9][0-9]$ ]]; then break; fi
     fi
     sleep 5
   done
   docker compose ps
-  curl --silent --show-error --insecure --fail --connect-timeout 5 "https://127.0.0.1:55000/" >/dev/null || warn "Wazuh API is not responding yet; inspect: docker compose logs --tail=200 wazuh.manager"
+  if [[ "$api_code" == "401" ]]; then
+    log "Wazuh API is reachable and correctly requires authentication (HTTP 401)."
+  elif [[ "$api_code" =~ ^[2345][0-9][0-9]$ ]]; then
+    warn "Wazuh API returned HTTP $api_code; inspect authentication/configuration if requests fail."
+  else
+    warn "Wazuh API is not responding; inspect: docker compose logs --tail=200 wazuh.manager"
+  fi
   log "Dashboard: https://$(hostname -I | awk '{print $1}')/ (self-signed certificate warning is expected for MVP/private-LAN use)."
   log "API bind address: $WAZUH_API_BIND_ADDRESS:55000. Keep this port private and place it behind a firewall or private network for the secondary node."
 }
