@@ -141,3 +141,55 @@ The co-pilot remains advisory-only. It does not automatically deploy AI-generate
 ## Contributor handoff
 
 The Velociraptor contributor should read [`docs/velociraptor-contributor-readme.md`](docs/velociraptor-contributor-readme.md) before changing Velociraptor files. That document describes the current Wazuh boundary, the existing Velociraptor scripts, the expected runtime locations, the frontend integration points, and the startup contract that must be respected.
+
+## Restored Velociraptor project notes
+
+The application includes a **Project setup** screen with two separate server installation sections: **Wazuh Server** for detection and alert telemetry, and **Velociraptor Server** for endpoint evidence collection. Selecting either card opens its setup sequence; selecting Velociraptor displays the dedicated web wizard with endpoint, TLS verification, service identity, and read-only readiness steps.
+
+The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
+
+For a local console deployment, install Wazuh first with `sudo ./wazuh_installation.sh`, then complete the separate Velociraptor wizard using the existing scripts. After both infrastructure components are installed and configured, run `./startup.sh`. At the current handoff point, `startup.sh` starts Wazuh and Sentroxis; the Velociraptor contributor owns adding or finalizing safe Velociraptor service startup. Wazuh installation requires `sudo` and prompts for three strong credentials on the first run. Set `SENTROXIS_SKIP_WAZUH=1` only when Wazuh is intentionally managed outside this checkout.
+
+Velociraptor remains a separate workflow owned by its existing setup scripts and guide. The Wazuh integration does not modify, install, or configure Velociraptor. See the [four-script Velociraptor setup guide](docs/velociraptor-setup.md) and the [Velociraptor contributor handoff](docs/velociraptor-contributor-readme.md) for that operator flow and its deployment boundaries.
+
+| Setup item | Current behavior |
+|---|---|
+| Wazuh Server | Installed and started from the cloned checkout by `wazuh_installation.sh` and `startup.sh`; manager, indexer, dashboard, credentials, certificates, proxy, and health readiness are handled by the Wazuh workflow |
+| Velociraptor Server | Existing HTTPS endpoint, TLS verification, service identity, and bounded collection readiness workflow; implementation and final startup integration remain with the Velociraptor contributor |
+| Credentials | Not accepted in URLs; reserved for authenticated setup steps |
+| Remote installation | Not executed by the browser wizard; readiness state only |
+| Audit | Readiness start events are written to the backend audit store |
+
+### Velociraptor installation workflow
+
+The Project Setup screen includes an approval-gated Velociraptor flow. The backend selects a platform from an allowlisted official release catalog, downloads the matching Velocidex GitHub asset, verifies its published SHA-256 digest, and stores the verified binary under the ignored `backend/runtime/velociraptor/` directory.
+
+After verification, the browser flow and the four-script console workflow use the official binary to generate a self-signed configuration from bounded operator-selected values. The frontend binds at `8010`; the same Sentroxis login email and password become the initial Velociraptor Basic-authentication account without persisting plaintext credentials; and the official client configuration command creates `client.config.yaml` with the supplied server IP or DNS name rather than `localhost`. The final **Run Velociraptor server** action requires separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
+
+The Velociraptor implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. The Wazuh installer does install Docker and the host bcrypt dependency when required, because Wazuh is a required privileged primary-node component. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
+
+After pulling the repository, install the infrastructure components separately, then start the application:
+
+```bash
+cd ~/Desktop/project/sentroxis-copilot
+sudo ./wazuh_installation.sh
+# Complete the separate Velociraptor workflow owned by the Velociraptor contributor.
+./startup.sh
+```
+
+At the current handoff point, `startup.sh` starts the already-installed Wazuh services and Sentroxis application. It does not rerun the Velociraptor wizard or silently start a Velociraptor process. The Velociraptor contributor should update this paragraph and the startup integration after implementing and testing that component.
+
+### Velociraptor runtime API
+
+| Endpoint | Purpose | Safety boundary |
+|---|---|---|
+| `GET /api/velociraptor/catalog` | Return the official allowlisted release assets for the detected host | No arbitrary URLs |
+| `POST /api/velociraptor/prepare` | Download and SHA-256 verify the selected release asset | Explicit confirmation and fixed asset map |
+| `POST /api/velociraptor/config/generate` | Generate approved self-signed server and client configuration files | Fixed frontend port 8010, current-password confirmation, no free-form commands |
+| `POST /api/velociraptor/run` | Start `frontend --config` after config creation | Explicit confirmation and generated config required |
+| `POST /api/velociraptor/stop` | Stop the process started by the service | Analyst authorization |
+
+### References
+
+[1]: https://docs.velociraptor.app/downloads/ "Velociraptor official downloads"
+[2]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor official quickstart"
