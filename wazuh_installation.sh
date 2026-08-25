@@ -195,7 +195,7 @@ generate_bcrypt_hash() {
 }
 
 configure_credentials() {
-  local compose="docker-compose.yml" users="config/wazuh_indexer/internal_users.yml" dashboard_api="config/wazuh_dashboard/wazuh.yml" dashboard_config="config/wazuh_dashboard/opensearch_dashboards.yml" admin_hash dashboard_hash
+  local compose="docker-compose.yml" users="config/wazuh_indexer/internal_users.yml" dashboard_api="config/wazuh_dashboard/wazuh.yml" admin_hash dashboard_hash
   prompt_secret WAZUH_INDEXER_PASSWORD "Wazuh indexer admin password"
   prompt_secret WAZUH_DASHBOARD_PASSWORD "Wazuh dashboard password"
   prompt_secret WAZUH_API_PASSWORD "Wazuh Server API password"
@@ -205,7 +205,6 @@ configure_credentials() {
   cp -p "$compose" "$compose.sentroxis-backup"
   cp -p "$users" "$users.sentroxis-backup"
   cp -p "$dashboard_api" "$dashboard_api.sentroxis-backup"
-  cp -p "$dashboard_config" "$dashboard_config.sentroxis-backup"
 
   admin_hash="$(generate_bcrypt_hash "$WAZUH_INDEXER_PASSWORD")"
   dashboard_hash="$(generate_bcrypt_hash "$WAZUH_DASHBOARD_PASSWORD")"
@@ -218,14 +217,6 @@ text = path.read_text()
 text = re.sub(r'(?ms)(^admin:\n\s+hash: )"[^"]+"', lambda m: m.group(1) + '"' + os.environ['ADMIN_HASH'] + '"', text, count=1)
 text = re.sub(r'(?ms)(^kibanaserver:\n\s+hash: )"[^"]+"', lambda m: m.group(1) + '"' + os.environ['DASHBOARD_HASH'] + '"', text, count=1)
 path.write_text(text)
-PY
-
-  DASHBOARD_BASE_PATH="/wazuh-dashboard" python3 - "$dashboard_config" <<'PY'
-import os, pathlib, re, sys
-path = pathlib.Path(sys.argv[1])
-lines = [line for line in path.read_text().splitlines() if not re.match(r'^server\.(basePath|rewriteBasePath):', line)]
-lines.extend([f"server.basePath: {os.environ['DASHBOARD_BASE_PATH']}", "server.rewriteBasePath: true"])
-path.write_text(''.join(line + '\n' for line in lines))
 PY
 
   API_PASSWORD="$WAZUH_API_PASSWORD" python3 - "$dashboard_api" <<'PY'
@@ -258,8 +249,8 @@ path.write_text(''.join(output))
 PY
   # The indexer container runs as UID 1000 and must read this bind-mounted
   # file during securityadmin. It contains bcrypt hashes, not plaintext secrets.
-  chmod 644 "$users" "$dashboard_api" "$dashboard_config"
-  chmod 600 "$compose.sentroxis-backup" "$users.sentroxis-backup" "$dashboard_api.sentroxis-backup" "$dashboard_config.sentroxis-backup"
+  chmod 644 "$users" "$dashboard_api"
+  chmod 600 "$compose.sentroxis-backup" "$users.sentroxis-backup" "$dashboard_api.sentroxis-backup"
 }
 
 generate_certificates() {
