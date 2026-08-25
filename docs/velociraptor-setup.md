@@ -1,46 +1,43 @@
-# Velociraptor Setup Script
+# Velociraptor Setup in Sentroxis Copilot
 
-The project now includes `scripts/setup_velociraptor.py`. It detects the current operating system and CPU architecture, selects a pinned **official Velocidex release asset**, downloads it from the official GitHub releases location, and verifies the downloaded file against its published SHA-256 value before it can be used. The script supports Linux AMD64, Linux ARM64, macOS AMD64, macOS ARM64, and Windows AMD64.
+Sentroxis Copilot provides a **bounded local configuration workflow** for Velociraptor. It downloads only a pinned official Velocidex release for the selected supported platform, verifies the binary against the published SHA-256 digest, and generates both `server.config.yaml` and `client.config.yaml` using that verified binary.
 
-> The script deliberately does **not** install operating-system packages, create a background service, change firewall rules, or start the Velociraptor server. It prepares a local, verified binary and configuration only; server startup remains an explicit operator action.
+> The browser workflow is deliberately limited to **Self Signed SSL** with Basic authentication. It does not offer Let’s Encrypt or SSO deployment types, arbitrary download URLs, arbitrary shell commands, firewall changes, operating-system package installation, or automatic service creation.
 
-## Usage
+## Operator flow
 
-Run the script from the repository root on the machine that will host the local Velociraptor configuration:
+After signing in to Sentroxis Copilot, open **Project Setup → Velociraptor Server**. First download and verify the selected official binary. The configuration form then collects the operational values that require an operator decision.
 
-```bash
-chmod 700 scripts/setup_velociraptor.py
-./scripts/setup_velociraptor.py
-```
-
-Use the following command first if you want to inspect the detected platform and selected official download without writing files or opening the wizard:
-
-```bash
-./scripts/setup_velociraptor.py --dry-run
-```
-
-The script starts Velociraptor's official `config generate -i` workflow. Answer all deployment-specific questions interactively at runtime, such as the deployment type, server DNS name or IP address, and administrator account. When the wizard asks for the output filename, use `server.config.yaml` unless you intentionally supplied a different `--config` path.
-
-| Configuration item | Handling |
+| Item | Behavior |
 |---|---|
-| Release and binary | Automatically selected for the detected supported platform and SHA-256 verified. |
-| Deployment type, DNS/IP, credentials, certificates, and other wizard prompts | Supplied by the operator at runtime. |
-| `Frontend.bind_port` | Automatically finalized as **8010** after the wizard succeeds. |
-| Default `Client.server_urls` entries using port `8000` | Synchronized to **8010** so newly generated clients use the same listener. |
-| `GUI.bind_port` | Left unchanged; it is a separate administration GUI setting. |
-| Server process | Not started by the script. Review the configuration before an explicit start. |
+| Deployment type | Fixed to **Self Signed SSL**. |
+| DNS integration | Fixed to manual DNS configuration; NoIP and Cloudflare credential flows are not available. |
+| Server operating system | Selected by the operator: Linux, Windows, or macOS. |
+| Datastore and logs directories | Supplied by the operator. The logs directory defaults to `<datastore>/logs` if omitted. |
+| Certificate lifetime | Selected by the operator: 1, 2, or 10 years. |
+| Windows registry writeback | Selected by the operator. |
+| Master frontend hostname or server IP | Supplied by the operator; the saved HTTPS endpoint is used as a convenient initial suggestion. |
+| Experimental WebSocket communications | Selected by the operator. |
+| Frontend port | Fixed to **8010**. |
+| GUI port | Selected by the operator; it remains independent of the frontend client port. |
+| First Velociraptor administrator | Automatically set to the signed-in Sentroxis user’s **email**, which is also the project’s login identity. |
+| Administrator password | The signed-in user confirms their current Sentroxis password once. It is verified server-side and is never stored as plaintext. |
 
-## Port behavior
+The configuration generator creates fresh Velociraptor key material. It generates `server.config.yaml`, then runs the official client-config operation to create `client.config.yaml`. The resulting client configuration uses the supplied server IP/DNS and **port 8010**, rather than `localhost:8000`.
 
-Velociraptor's frontend service is the client-facing service. The official quickstart documents TCP port `8000` as its default, while the web administration GUI is normally separate on TCP port `8889`. This project changes `Frontend.bind_port` from the generated default to **8010** and synchronizes only default `Client.server_urls` entries still using `:8000` to `:8010`, so newly generated client configurations reach the same listener. It does not change `GUI.bind_port`, expose a bind address, or alter TLS/authentication settings. Review the generated YAML and ensure that client deployment configuration and network controls match the final port before enrolling endpoints. [1]
+## Files and permissions
 
-The same port-finalization behavior is applied to the existing Sentroxis browser-based Velociraptor wizard. That wizard still accepts operator input for all deployment-specific settings and applies the `8010` value only after a successful configuration file is generated.
+The verified binary, server configuration, and client configuration are stored under `backend/runtime/velociraptor/`. On POSIX hosts, Sentroxis applies owner-only permissions to the generated configuration files. Treat both YAML files as sensitive deployment material and keep any backups under appropriate access control. [1]
 
-## Safety and deployment notes
+The final **Run Velociraptor server** action is separate and explicit. Review the generated configuration before starting the server. The application does not create a background operating-system service; production service management is an operator responsibility.
 
-A server configuration contains cryptographic material and access-control settings. Treat it as sensitive and restrict its file permissions and backups. The script applies owner-only permissions on POSIX hosts after it writes the configuration. [1]
+## Local CLI helper
 
-The official quickstart describes self-signed TLS with Basic authentication as appropriate for short-term, private testing rather than general internet exposure. For a production deployment, follow the official deployment guidance for TLS, identity management, network restrictions, backup strategy, and service management. [1] [2]
+The repository retains `scripts/setup_velociraptor.py` for a local, operator-driven download and interactive preparation procedure. Use the signed-in browser workflow for the bounded project configuration and automatic `client.config.yaml` generation described above. The command-line helper is useful only when a local console workflow is specifically required.
+
+## Deployment note
+
+The official quickstart positions self-signed TLS with Basic authentication as a short-term, private-network configuration rather than a public-internet deployment. Do not expose the resulting GUI or frontend broadly without appropriate network controls. For long-term production operation, follow the official deployment guidance for TLS, authentication, network restrictions, backups, and host service management. [1] [2]
 
 ## References
 

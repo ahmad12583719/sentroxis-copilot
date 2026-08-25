@@ -2,11 +2,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import main
+from backend.core.velociraptor_setup import VelociraptorSetupService
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB_PATH", tmp_path / "test.db")
+    monkeypatch.setattr(main, "velociraptor_setup", VelociraptorSetupService(tmp_path / "runtime" / "velociraptor"))
     monkeypatch.setenv("SENTROXIS_DEV_MODE", "false")
     main.init_db()
     with TestClient(main.app) as test_client:
@@ -132,9 +134,34 @@ def test_velociraptor_api_catalog_and_approval_gates(client):
     assert "confirmation" in download.json()["detail"]
 
     wizard = client.post("/api/velociraptor/wizard/start", json={"platform": "linux-amd64", "confirm_start": True})
-    assert wizard.status_code == 422
-    assert "prepared" in wizard.json()["detail"]
+    assert wizard.status_code == 410
+    assert "disabled" in wizard.json()["detail"]
 
     server = client.post("/api/velociraptor/run", json={"platform": "linux-amd64", "confirm_run": True})
     assert server.status_code == 422
     assert "prepared" in server.json()["detail"]
+
+
+def test_velociraptor_config_generation_requires_explicit_current_password(client):
+    base_payload = {
+        "platform": "linux-amd64",
+        "confirm_generate": False,
+        "server_os": "linux",
+        "datastore_path": "/srv/velo-data",
+        "certificate_years": 1,
+        "use_registry_writeback": False,
+        "frontend_hostname": "velo.example.com",
+        "use_websocket": False,
+        "gui_port": 8889,
+        "password_confirmation": "strong-test-password",
+    }
+    unconfirmed = client.post("/api/velociraptor/config/generate", json=base_payload)
+    assert unconfirmed.status_code == 400
+    assert "confirmation" in unconfirmed.json()["detail"]
+
+    wrong_password = client.post(
+        "/api/velociraptor/config/generate",
+        json={**base_payload, "confirm_generate": True, "password_confirmation": "not-the-current-password"},
+    )
+    assert wrong_password.status_code == 401
+    assert "did not match" in wrong_password.json()["detail"]

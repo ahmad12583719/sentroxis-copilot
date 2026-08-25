@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform as host_platform
 import re
+import secrets
+import tempfile
 try:
     import pty
 except ImportError:  # pragma: no cover - Windows does not provide pty
@@ -202,6 +205,147 @@ class VelociraptorSetupService:
         if not self.installation_path.is_file():
             raise FileNotFoundError("Velociraptor has not been prepared")
         return VelociraptorInstallation.model_validate_json(self.installation_path.read_text(encoding="utf-8"))
+
+    def generate_self_signed_config(
+        self,
+        installation: VelociraptorInstallation,
+        *,
+        server_os: str,
+        datastore_path: str,
+        log_path: str | None,
+        certificate_years: int,
+        use_registry_writeback: bool,
+        frontend_hostname: str,
+        use_websocket: bool,
+        gui_port: int,
+        admin_username: str,
+        password_confirmation: str,
+    ) -> dict[str, str]:
+        """Create a bounded self-signed configuration and its client subset.
+
+        The official binary generates all deployment keys. This service only supplies
+        user-approved values, including the fixed frontend listener on 8010. The
+        Sentroxis password is converted to the official salted hash representation
+        before the temporary merge file is written; plaintext is never persisted.
+        """
+        if not installation.verified:
+            raise ValueError("Only a verified binary may generate configuration")
+        binary = Path(installation.binary_path)
+        if not binary.is_file():
+            raise FileNotFoundError("Verified Velociraptor binary is missing")
+        if server_os not in {"linux", "windows", "darwin"}:
+            raise ValueError("Unsupported server operating system")
+        if certificate_years not in {1, 2, 10}:
+            raise ValueError("Certificate validity must be 1, 2, or 10 years")
+        if not re.fullmatch(r"[A-Za-z0-9.-]{1,253}", frontend_hostname):
+            raise ValueError("Frontend hostname must be an IP address or DNS name")
+        if not re.fullmatch(r"[A-Za-z0-9@.\\-_#+]{1,120}", admin_username):
+            raise ValueError("The signed-in email cannot be used as a Velociraptor username")
+        if not 1 <= gui_port <= 65535:
+            raise ValueError("GUI port must be between 1 and 65535")
+
+        config_path = Path(installation.config_path)
+        client_config_path = self.runtime_dir / "client.config.yaml"
+        if config_path.exists() or client_config_path.exists():
+            raise FileExistsError("A configuration already exists; back it up or remove it before generating a new one")
+
+        normalized_datastore = str(Path(datastore_path).expanduser())
+        normalized_logs = str(Path(log_path).expanduser()) if log_path else str(Path(normalized_datastore) / "logs")
+        protocol = "wss" if use_websocket else "https"
+        frontend_url = f"{protocol}://{frontend_hostname}:{DEFAULT_FRONTEND_PORT}/"
+        salt = secrets.token_bytes(32)
+        password_hash = hashlib.sha256(salt + password_confirmation.encode("utf-8")).hexdigest()
+        merge_payload: dict[str, Any] = {
+            "Datastore": {
+                "implementation": "FileBaseDataStore",
+                "location": normalized_datastore,
+                "filestore_directory": normalized_datastore,
+            },
+            "Logging": {"output_directory": normalized_logs, "separate_logs_per_component": True},
+            "Security": {"certificate_validity_days": certificate_years * 365},
+            "Frontend": {
+                "hostname": frontend_hostname,
+                "bind_address": "0.0.0.0",
+                "bind_port": DEFAULT_FRONTEND_PORT,
+            },
+            "GUI": {
+                "bind_address": "127.0.0.1",
+                "bind_port": gui_port,
+                "public_url": f"https://{frontend_hostname}:{gui_port}/app/index.html",
+                "authenticator": {"type": "Basic"},
+                "initial_users": [{
+                    "name": admin_username,
+                    "password_hash": password_hash,
+                    "password_salt": salt.hex(),
+                }],
+            },
+            "Client": {
+                "server_urls": [frontend_url],
+                "use_self_signed_ssl": True,
+            },
+        }
+        if use_registry_writeback:
+            merge_payload["Client"]["writeback_windows"] = "HKLM\\SOFTWARE\\Velocidex\\Velociraptor"
+
+        merge_path: Path | None = None
+        config_temp: Path | None = None
+        client_temp: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.runtime_dir, prefix=".config-merge.", suffix=".json", delete=False) as merge_file:
+                merge_path = Path(merge_file.name)
+                json.dump(merge_payload, merge_file)
+            if os.name == "posix":
+                merge_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+            with tempfile.NamedTemporaryFile(mode="wb", dir=self.runtime_dir, prefix=".server.", suffix=".yaml", delete=False) as output_file:
+                config_temp = Path(output_file.name)
+                generated = subprocess.run(
+                    [str(binary), "config", "generate", "--merge_file", str(merge_path)],
+                    cwd=self.runtime_dir,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output_file,
+                    stderr=subprocess.PIPE,
+                    timeout=90,
+                    check=False,
+                )
+            if generated.returncode != 0:
+                raise RuntimeError("Velociraptor server configuration generation failed")
+            os.replace(config_temp, config_path)
+            config_temp = None
+            if os.name == "posix":
+                config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+            with tempfile.NamedTemporaryFile(mode="wb", dir=self.runtime_dir, prefix=".client.", suffix=".yaml", delete=False) as output_file:
+                client_temp = Path(output_file.name)
+                client_generated = subprocess.run(
+                    [str(binary), "--config", str(config_path), "config", "client"],
+                    cwd=self.runtime_dir,
+                    stdin=subprocess.DEVNULL,
+                    stdout=output_file,
+                    stderr=subprocess.PIPE,
+                    timeout=90,
+                    check=False,
+                )
+            if client_generated.returncode != 0:
+                raise RuntimeError("Velociraptor client configuration generation failed")
+            os.replace(client_temp, client_config_path)
+            client_temp = None
+            if os.name == "posix":
+                client_config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            return {
+                "config_path": str(config_path),
+                "client_config_path": str(client_config_path),
+                "frontend_url": frontend_url,
+                "admin_username": admin_username,
+            }
+        finally:
+            # The merge payload contains password-derived material; remove it after use.
+            if merge_path:
+                merge_path.unlink(missing_ok=True)
+            if config_temp:
+                config_temp.unlink(missing_ok=True)
+            if client_temp:
+                client_temp.unlink(missing_ok=True)
 
     @staticmethod
     def _set_frontend_port(config_path: Path, port: int = DEFAULT_FRONTEND_PORT) -> bool:

@@ -146,3 +146,14 @@ button:active { transform: scale(.98); }
 .empty-state { margin: 0; padding: 30px 21px; color: #6d888d; font: 10px/1.6 'DM Mono'; }.error-state { color: #ffad98; }.status-pending { margin-left: auto; width: 6px; height: 6px; border-radius: 50%; background: #536e74; }.connection-badge.pending { color: #d5ab69; border-color: #56462b; }.connection-badge.pending i { background: #d5ab69; box-shadow: none; }.setup-existing-banner { display: flex; align-items: flex-start; gap: 11px; margin-bottom: 18px; padding: 14px 16px; border: 1px solid #2b6259; border-radius: 8px; background: linear-gradient(90deg, #102a2b, #0c1b20); }.setup-existing-banner > div:nth-child(2) { flex: 1; }.setup-existing-banner strong { color: #c5e5dc; font-size: 11px; }.setup-existing-banner p { margin: 5px 0 0; color: #789197; font-size: 10px; line-height: 1.5; }.setup-existing-banner .setup-status { margin-top: 2px; }
 @media (max-width: 900px) { .auth-page { grid-template-columns: 1fr; padding: 45px 24px; }.auth-brand { max-width: 600px; }.auth-brand h1 { font-size: clamp(37px, 9vw, 58px); }.auth-promise { margin-top: 27px; }.auth-card { width: min(100%, 470px); } }
 @media (max-width: 570px) { .auth-page { padding: 30px 16px; }.auth-brand-mark { margin-bottom: 22px; }.auth-card { padding: 22px 18px; }.setup-existing-banner { flex-wrap: wrap; }.setup-existing-banner .setup-status { margin-left: 28px; } }
+
+/* Bounded Velociraptor configuration form */
+.installer-config-form { display: grid; gap: 8px; margin-top: 2px; }
+.installer-config-form label { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; margin: 2px 0 0; }
+.installer-config-form label small { color: #526f75; font-size: 8px; }
+.installer-config-form input, .installer-config-form select { width: 100%; margin: 0; border: 1px solid #27434a; background: #09171b; color: #c2d3d2; border-radius: 5px; padding: 8px; font: 9px 'DM Mono'; }
+.installer-config-form input[readonly] { color: #86b7aa; background: #0b1b1f; }
+.installer-config-form .installer-checkbox { display: flex; align-items: flex-start; justify-content: flex-start; gap: 7px; line-height: 1.4; color: #809a9d; }
+.installer-config-form .installer-checkbox input { width: 13px; height: 13px; flex: 0 0 13px; margin-top: 1px; accent-color: #2df7b5; }
+.installer-config-form .installer-action { margin-top: 4px; }
+@media (max-width: 1100px) { .installer-flow { grid-template-columns: 1fr; gap: 12px; }.installer-connector { display: none; } }

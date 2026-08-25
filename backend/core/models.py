@@ -270,6 +270,36 @@ class VelociraptorPrepareResponse(BaseModel):
     audit_id: str
 
 
+class VelociraptorConfigGenerateRequest(BaseModel):
+    """Values for the approved self-signed Velociraptor configuration workflow."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    confirm_generate: bool = False
+    server_os: Literal["linux", "windows", "darwin"]
+    datastore_path: str = Field(min_length=1, max_length=500)
+    log_path: str | None = Field(default=None, max_length=500)
+    certificate_years: Literal[1, 2, 10] = 1
+    use_registry_writeback: bool = False
+    frontend_hostname: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9.-]+$")
+    use_websocket: bool = False
+    gui_port: int = Field(default=8889, ge=1, le=65535)
+    password_confirmation: str = Field(min_length=12, max_length=128)
+
+
+class VelociraptorConfigGenerateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    config_path: str
+    client_config_path: str
+    frontend_port: int = Field(default=8010, ge=1, le=65535)
+    frontend_url: str
+    admin_username: str
+    message: str
+    audit_id: str
+
+
 class VelociraptorWizardStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

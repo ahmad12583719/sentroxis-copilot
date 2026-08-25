@@ -154,7 +154,7 @@ The application now opens on the **Project setup** screen. It presents two separ
 
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
-For a local operator-driven Velociraptor preparation flow, use [`scripts/setup_velociraptor.py`](scripts/setup_velociraptor.py). It downloads a pinned official binary for the detected supported host, verifies its SHA-256 hash, opens the official interactive configuration wizard for runtime answers, finalizes `Frontend.bind_port` as `8010`, and synchronizes default generated `Client.server_urls` entries from port `8000` to `8010`. See the [Velociraptor setup guide](docs/velociraptor-setup.md) for usage and deployment boundaries.
+For the signed-in browser setup, Sentroxis uses a bounded Velociraptor configuration workflow. It verifies a pinned official binary, permits only the self-signed deployment model, fixes the frontend client port at `8010`, collects the remaining operational fields from the operator, sets the initial Velociraptor administrator to the signed-in user’s email after a one-time password confirmation, and generates both `server.config.yaml` and `client.config.yaml`. See the [Velociraptor setup guide](docs/velociraptor-setup.md) for the operator flow and deployment boundaries. [`scripts/setup_velociraptor.py`](scripts/setup_velociraptor.py) remains available for a separate local-console preparation flow.
 
 | Setup item | Current behavior |
 |---|---|
@@ -168,7 +168,7 @@ For a local operator-driven Velociraptor preparation flow, use [`scripts/setup_v
 
 The Project Setup screen now includes a complete, approval-gated Velociraptor flow. The backend selects a platform from an allowlisted official release catalog, downloads the matching Velocidex GitHub asset, verifies its published SHA-256 digest, and stores the verified binary under the ignored `backend/runtime/velociraptor/` directory.
 
-After verification, the UI can start the official interactive command `velociraptor config generate -i` without shell interpolation. Its terminal output is streamed into the dashboard and the operator can provide bounded wizard answers. Once `server.config.yaml` exists, the wizard finalizes `Frontend.bind_port` as `8010` and synchronizes default generated client URLs to the same port. The final **Run Velociraptor server** action then requires a separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
+After verification, the UI uses the official binary to generate a self-signed configuration from a strictly bounded set of operator-selected values. The workflow fixes `Frontend.bind_port` at `8010`, uses the signed-in account email as the initial Velociraptor administrator after a one-time password confirmation, and runs the official client configuration command to create `client.config.yaml` with the supplied server IP or DNS name rather than `localhost`. The final **Run Velociraptor server** action requires separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
 
 The implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
 
@@ -192,8 +192,6 @@ cd ~/Desktop/project/sentroxis-copilot
 |---|---|---|
 | `GET /api/velociraptor/catalog` | Return the official allowlisted release assets for the detected host | No arbitrary URLs |
 | `POST /api/velociraptor/prepare` | Download and SHA-256 verify the selected release asset | Explicit confirmation and fixed asset map |
-| `POST /api/velociraptor/wizard/start` | Start `config generate -i` for the verified binary | Explicit confirmation and no shell |
-| `GET /api/velociraptor/wizard/{session_id}` | Read bounded interactive wizard output | Session-scoped access |
-| `POST /api/velociraptor/wizard/input` | Send bounded answers to the fixed config wizard | No command substitution |
+| `POST /api/velociraptor/config/generate` | Generate approved self-signed server and client configuration files | Fixed frontend port 8010, current-password confirmation, no free-form commands |
 | `POST /api/velociraptor/run` | Start `frontend --config` after config creation | Explicit confirmation and generated config required |
 | `POST /api/velociraptor/stop` | Stop the process started by the service | Analyst authorization |

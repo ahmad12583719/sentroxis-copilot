@@ -98,6 +98,15 @@ def authenticate(email: str, password: str) -> Principal | None:
     return Principal(subject=row["id"], role=row["role"], name=row["name"], email=row["email"])
 
 
+def verify_principal_password(principal: Principal, password: str) -> bool:
+    """Verify a one-time confirmation against the current signed-in account only."""
+    if not password or len(password) > 128:
+        return False
+    with _db() as db:
+        row = db.execute("SELECT password_hash FROM users WHERE id = ?", (principal.subject,)).fetchone()
+    return bool(row and _password_matches(password, row["password_hash"]))
+
+
 def create_session(principal: Principal) -> str:
     raw_token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
@@ -185,4 +194,5 @@ __all__ = [
     "registration_allowed",
     "require_role",
     "set_session_cookie",
+    "verify_principal_password",
 ]

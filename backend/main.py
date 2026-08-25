@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ from backend.core.auth import (
     registration_allowed,
     require_role,
     set_session_cookie,
+    verify_principal_password,
 )
 from backend.core.llm_agent import agent
 from backend.core.setup_service import default_state, start_readiness
@@ -46,6 +48,8 @@ from backend.core.models import (
     SetupState,
     VelociraptorPrepareRequest,
     VelociraptorPrepareResponse,
+    VelociraptorConfigGenerateRequest,
+    VelociraptorConfigGenerateResponse,
     VelociraptorCatalog,
     VelociraptorRunRequest,
     VelociraptorRunResponse,
@@ -376,27 +380,67 @@ def prepare_velociraptor(request: VelociraptorPrepareRequest, principal: Princip
     )
 
 
-@app.post("/api/velociraptor/wizard/start", response_model=VelociraptorWizardStartResponse)
-def start_velociraptor_wizard(request: VelociraptorWizardStartRequest, principal: Principal = Depends(get_principal)) -> VelociraptorWizardStartResponse:
+@app.post("/api/velociraptor/config/generate", response_model=VelociraptorConfigGenerateResponse)
+def generate_velociraptor_config(
+    request: VelociraptorConfigGenerateRequest,
+    principal: Principal = Depends(get_principal),
+) -> VelociraptorConfigGenerateResponse:
     require_role(principal, "analyst", "admin")
+    if not request.confirm_generate:
+        raise HTTPException(status_code=400, detail="Explicit configuration confirmation is required")
+    if not verify_principal_password(principal, request.password_confirmation):
+        raise HTTPException(status_code=401, detail="Password confirmation did not match the signed-in account")
     try:
         installation = velociraptor_setup.load_installation()
         if installation.platform != request.platform:
-            raise ValueError("Wizard platform must match the verified installation")
-        session_id, command = velociraptor_setup.start_wizard(installation, request.confirm_start)
-        session = velociraptor_setup.get_session(session_id)
-    except PermissionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (FileNotFoundError, ValueError) as exc:
+            raise ValueError("Configuration platform must match the verified installation")
+        result = velociraptor_setup.generate_self_signed_config(
+            installation,
+            server_os=request.server_os,
+            datastore_path=request.datastore_path,
+            log_path=request.log_path,
+            certificate_years=request.certificate_years,
+            use_registry_writeback=request.use_registry_writeback,
+            frontend_hostname=request.frontend_hostname,
+            use_websocket=request.use_websocket,
+            gui_port=request.gui_port,
+            admin_username=principal.email,
+            password_confirmation=request.password_confirmation,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    save_audit(principal, "velociraptor.config_wizard.started", session_id, {"platform": request.platform.value})
-    return VelociraptorWizardStartResponse(
-        session_id=session_id,
-        command_preview=command,
-        output=session.snapshot(),
-        running=session.process.poll() is None,
-        config_path=str(session.config_path),
-        message="Interactive wizard started. Provide answers only for this approved local configuration process.",
+    audit = save_audit(
+        principal,
+        "velociraptor.config.generated",
+        installation.filename,
+        {
+            "deployment": "self_signed",
+            "server_os": request.server_os,
+            "frontend_port": "8010",
+            "gui_port": str(request.gui_port),
+            "client_config": "generated",
+            "admin_identity": principal.email,
+        },
+    )
+    return VelociraptorConfigGenerateResponse(
+        config_path=result["config_path"],
+        client_config_path=result["client_config_path"],
+        frontend_url=result["frontend_url"],
+        admin_username=result["admin_username"],
+        message="Self-signed server and client configurations were generated. Frontend port is fixed at 8010.",
+        audit_id=audit.id,
+    )
+
+
+@app.post("/api/velociraptor/wizard/start", response_model=VelociraptorWizardStartResponse)
+def start_velociraptor_wizard(request: VelociraptorWizardStartRequest, principal: Principal = Depends(get_principal)) -> VelociraptorWizardStartResponse:
+    _ = request
+    require_role(principal, "analyst", "admin")
+    raise HTTPException(
+        status_code=410,
+        detail="The free-form terminal wizard is disabled. Use the approved self-signed configuration workflow instead.",
     )
 
 

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from backend.core.models import VelociraptorPlatform, VelociraptorInstallation
@@ -74,3 +76,97 @@ def test_finalize_config_rejects_missing_frontend_port(tmp_path):
 
     with pytest.raises(ValueError, match="no numeric bind_port"):
         VelociraptorSetupService._set_frontend_port(config_path)
+
+
+def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    runtime_dir = tmp_path / "runtime"
+    service = VelociraptorSetupService(runtime_dir)
+    binary = runtime_dir / "velociraptor"
+    binary.write_bytes(b"verified-test-binary")
+    installation = VelociraptorInstallation(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        binary_path=str(binary),
+        filename="velociraptor-v0.77.2-linux-amd64",
+        sha256="0" * 64,
+        verified=True,
+        command_preview="velociraptor config generate -i",
+        config_path=str(runtime_dir / "server.config.yaml"),
+        server_command_preview="velociraptor --config server.config.yaml frontend",
+    )
+    captured_merge: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        if command[1:3] == ["config", "generate"]:
+            captured_merge.update(json.loads(Path(command[-1]).read_text(encoding="utf-8")))
+            kwargs["stdout"].write(b"Frontend:\n  bind_port: 8010\n")
+        else:
+            assert command[1:4] == ["--config", str(runtime_dir / "server.config.yaml"), "config"]
+            assert command[4] == "client"
+            kwargs["stdout"].write(b"Client:\n  server_urls:\n  - https://192.168.1.20:8010/\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("backend.core.velociraptor_setup.subprocess.run", fake_run)
+
+    result = service.generate_self_signed_config(
+        installation,
+        server_os="linux",
+        datastore_path="/srv/velo-data",
+        log_path="/srv/velo-logs",
+        certificate_years=10,
+        use_registry_writeback=True,
+        frontend_hostname="192.168.1.20",
+        use_websocket=False,
+        gui_port=9443,
+        admin_username="analyst@example.com",
+        password_confirmation="strong-test-password",
+    )
+
+    assert result["frontend_url"] == "https://192.168.1.20:8010/"
+    assert result["admin_username"] == "analyst@example.com"
+    assert Path(result["config_path"]).is_file()
+    assert Path(result["client_config_path"]).is_file()
+    assert captured_merge["Frontend"] == {"hostname": "192.168.1.20", "bind_address": "0.0.0.0", "bind_port": 8010}
+    assert captured_merge["GUI"]["bind_port"] == 9443
+    assert captured_merge["Client"]["server_urls"] == ["https://192.168.1.20:8010/"]
+    assert captured_merge["Client"]["writeback_windows"] == "HKLM\\SOFTWARE\\Velocidex\\Velociraptor"
+    assert captured_merge["GUI"]["initial_users"][0]["name"] == "analyst@example.com"
+    assert captured_merge["GUI"]["initial_users"][0]["password_hash"] != "strong-test-password"
+
+
+def test_generate_self_signed_config_rejects_existing_config(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    service = VelociraptorSetupService(runtime_dir)
+    binary = runtime_dir / "velociraptor"
+    binary.write_bytes(b"verified-test-binary")
+    config_path = runtime_dir / "server.config.yaml"
+    config_path.write_text("existing", encoding="utf-8")
+    installation = VelociraptorInstallation(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        binary_path=str(binary),
+        filename="velociraptor-v0.77.2-linux-amd64",
+        sha256="0" * 64,
+        verified=True,
+        command_preview="velociraptor config generate -i",
+        config_path=str(config_path),
+        server_command_preview="velociraptor --config server.config.yaml frontend",
+    )
+
+    with pytest.raises(FileExistsError, match="already exists"):
+        service.generate_self_signed_config(
+            installation,
+            server_os="linux",
+            datastore_path="/srv/velo-data",
+            log_path=None,
+            certificate_years=1,
+            use_registry_writeback=False,
+            frontend_hostname="velo.example.com",
+            use_websocket=False,
+            gui_port=8889,
+            admin_username="analyst@example.com",
+            password_confirmation="strong-test-password",
+        )
