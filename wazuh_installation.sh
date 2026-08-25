@@ -164,6 +164,13 @@ prepare_stack() {
   cd "$WAZUH_HOME/single-node"
 }
 
+generate_bcrypt_hash() {
+  local password="$1"
+  # The official Wazuh indexer image ships the supported bcrypt utility. The
+  # password is passed through stdin rather than exposed in process arguments.
+  printf '%s\n' "$password" | docker run --rm -i --entrypoint bash "wazuh/wazuh-indexer:${WAZUH_VERSION#v}" -c 'IFS= read -r password; plugins/opensearch-security/tools/hash.sh -p "$password"' | tail -n 1
+}
+
 configure_credentials() {
   local compose="docker-compose.yml" users="config/wazuh_indexer/internal_users.yml" admin_hash dashboard_hash
   prompt_secret WAZUH_INDEXER_PASSWORD "Wazuh indexer admin password"
@@ -175,8 +182,8 @@ configure_credentials() {
   cp -p "$compose" "$compose.sentroxis-backup"
   cp -p "$users" "$users.sentroxis-backup"
 
-  admin_hash="$(printf '%s' "$WAZUH_INDEXER_PASSWORD" | python3 -c 'import crypt,sys; p=sys.stdin.read(); print(crypt.crypt(p, crypt.mksalt(crypt.METHOD_BLOWFISH)))')"
-  dashboard_hash="$(printf '%s' "$WAZUH_DASHBOARD_PASSWORD" | python3 -c 'import crypt,sys; p=sys.stdin.read(); print(crypt.crypt(p, crypt.mksalt(crypt.METHOD_BLOWFISH)))')"
+  admin_hash="$(generate_bcrypt_hash "$WAZUH_INDEXER_PASSWORD")"
+  dashboard_hash="$(generate_bcrypt_hash "$WAZUH_DASHBOARD_PASSWORD")"
   [[ "$admin_hash" != "*" && "$dashboard_hash" != "*" ]] || fatal "Could not generate bcrypt password hashes."
 
   ADMIN_HASH="$admin_hash" DASHBOARD_HASH="$dashboard_hash" python3 - "$users" <<'PY'
