@@ -155,6 +155,7 @@ prompt_secret() {
   fi
   (( ${#value} >= MIN_PASSWORD_LENGTH )) || fatal "$var_name must contain at least $MIN_PASSWORD_LENGTH characters."
   [[ "$value" =~ ^[A-Za-z0-9._@%+=:,/-]+$ ]] || fatal "$var_name contains unsupported characters; use letters, digits, and . _ @ % + = : , / -."
+  [[ "$value" =~ [A-Z] && "$value" =~ [a-z] && "$value" =~ [0-9] && "$value" =~ [._@%+=:,/-] ]] || fatal "$var_name must include uppercase, lowercase, a number, and a special character."
 }
 
 prepare_stack() {
@@ -210,15 +211,16 @@ PY
 import os, pathlib
 path = pathlib.Path(os.environ['COMPOSE_FILE'])
 text = path.read_text()
-replacements = {
-    'INDEXER_PASSWORD=SecretPassword': 'INDEXER_PASSWORD=' + os.environ['INDEXER_PASSWORD'],
-    'API_PASSWORD=MyS3cr37P450r.*-': 'API_PASSWORD=' + os.environ['API_PASSWORD'],
-    'DASHBOARD_PASSWORD=kibanaserver': 'DASHBOARD_PASSWORD=' + os.environ['DASHBOARD_PASSWORD'],
-    '- "55000:55000"': '- "' + os.environ['API_BIND_ADDRESS'] + ':55000:55000"',
-    'OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m': 'OPENSEARCH_JAVA_OPTS=' + os.environ['JVM_OPTS'],
-}
-for old, new in replacements.items():
-    text = text.replace(old, new)
+import re
+replacements = [
+    (r'(?m)(^\s*(?:-\s*["\']?)?INDEXER_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['INDEXER_PASSWORD']),
+    (r'(?m)(^\s*(?:-\s*["\']?)?API_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['API_PASSWORD']),
+    (r'(?m)(^\s*(?:-\s*["\']?)?DASHBOARD_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['DASHBOARD_PASSWORD']),
+    (r'(?m)(^\s*-\s*["\']?)\S*:55000:55000(["\']?\s*)$', r'\1' + os.environ['API_BIND_ADDRESS'] + r':55000:55000\2'),
+    (r'(?m)(^\s*(?:-\s*["\']?)?OPENSEARCH_JAVA_OPTS(?::|=)\s*)[^\n]+', r'\1' + os.environ['JVM_OPTS']),
+]
+for pattern, replacement in replacements:
+    text = re.sub(pattern, replacement, text)
 path.write_text(text)
 PY
   chmod 600 "$users" "$compose.sentroxis-backup"
