@@ -248,6 +248,9 @@ initialize_indexer_security() {
   local attempt
   for attempt in {1..3}; do
     if docker compose exec -T wazuh.indexer bash -lc '
+      export JAVA_HOME="/usr/share/wazuh-indexer/jdk"
+      export OPENSEARCH_JAVA_HOME="$JAVA_HOME"
+      export PATH="$JAVA_HOME/bin:$PATH"
       export CACERT="/usr/share/wazuh-indexer/certs/root-ca.pem"
       export CERT="/usr/share/wazuh-indexer/certs/admin.pem"
       export KEY="/usr/share/wazuh-indexer/certs/admin-key.pem"
