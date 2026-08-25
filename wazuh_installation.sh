@@ -210,20 +210,22 @@ path.write_text(text)
 PY
 
   COMPOSE_FILE="$compose" INDEXER_PASSWORD="$WAZUH_INDEXER_PASSWORD" API_PASSWORD="$WAZUH_API_PASSWORD" DASHBOARD_PASSWORD="$WAZUH_DASHBOARD_PASSWORD" API_BIND_ADDRESS="$WAZUH_API_BIND_ADDRESS" JVM_OPTS="$WAZUH_OPENSEARCH_JAVA_OPTS" python3 - <<'PY'
-import os, pathlib
+import json, os, pathlib, re
 path = pathlib.Path(os.environ['COMPOSE_FILE'])
-text = path.read_text()
-import re
-replacements = [
-    (r'(?m)(^\s*(?:-\s*["\']?)?INDEXER_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['INDEXER_PASSWORD']),
-    (r'(?m)(^\s*(?:-\s*["\']?)?API_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['API_PASSWORD']),
-    (r'(?m)(^\s*(?:-\s*["\']?)?DASHBOARD_PASSWORD(?::|=)\s*)[^\n]+', r'\1' + os.environ['DASHBOARD_PASSWORD']),
-    (r'(?m)(^\s*-\s*["\']?)\S*:55000:55000(["\']?\s*)$', r'\1' + os.environ['API_BIND_ADDRESS'] + r':55000:55000\2'),
-    (r'(?m)(^\s*(?:-\s*["\']?)?OPENSEARCH_JAVA_OPTS(?::|=)\s*)[^\n]+', r'\1' + os.environ['JVM_OPTS']),
-]
-for pattern, replacement in replacements:
-    text = re.sub(pattern, replacement, text)
-path.write_text(text)
+lines = path.read_text().splitlines(keepends=True)
+output = []
+for line in lines:
+    indent = re.match(r'^(\s*)', line).group(1)
+    if re.match(r'^\s*-\s*["\']?(INDEXER_PASSWORD|API_PASSWORD|DASHBOARD_PASSWORD)(?::|=)', line):
+        key = re.search(r'(INDEXER_PASSWORD|API_PASSWORD|DASHBOARD_PASSWORD)', line).group(1)
+        output.append(indent + '- ' + json.dumps(key + '=' + os.environ[key]) + '\n')
+    elif re.match(r'^\s*-\s*["\']?OPENSEARCH_JAVA_OPTS(?::|=)', line):
+        output.append(indent + '- ' + json.dumps('OPENSEARCH_JAVA_OPTS=' + os.environ['JVM_OPTS']) + '\n')
+    elif re.match(r'^\s*-\s*["\']?\S*:55000:55000["\']?\s*$', line):
+        output.append(indent + '- ' + json.dumps(os.environ['API_BIND_ADDRESS'] + ':55000:55000') + '\n')
+    else:
+        output.append(line)
+path.write_text(''.join(output))
 PY
   chmod 600 "$users" "$compose.sentroxis-backup"
 }
