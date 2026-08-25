@@ -297,6 +297,7 @@ server {
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_cookie_flags ~ secure samesite=none;
     }
 }
 NGINX
