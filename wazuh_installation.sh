@@ -120,15 +120,26 @@ install_docker_if_needed() {
   case "$ID" in
     ubuntu|debian)
       apt-get update
-      DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-plugin git openssl curl ca-certificates
+      DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io docker-compose-plugin git openssl curl ca-certificates python3-bcrypt
       ;;
     fedora|rhel|rocky|almalinux)
-      if command_exists dnf; then dnf install -y docker docker-compose-plugin git openssl curl ca-certificates; else yum install -y docker git openssl curl ca-certificates; fi
+      if command_exists dnf; then dnf install -y docker docker-compose-plugin git openssl curl ca-certificates python3-bcrypt; else yum install -y docker git openssl curl ca-certificates python3-bcrypt; fi
       systemctl enable --now docker
       ;;
   esac
   systemctl enable --now docker
   docker compose version >/dev/null 2>&1 || fatal "Docker Compose V2 is unavailable after installation."
+}
+
+ensure_bcrypt() {
+  if python3 -c 'import bcrypt' >/dev/null 2>&1; then return; fi
+  (( DRY_RUN )) && { log "DRY-RUN: would install the python3-bcrypt package."; return; }
+  log "Installing the host bcrypt library required to secure Wazuh credentials."
+  case "$ID" in
+    ubuntu|debian) apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y python3-bcrypt ;;
+    fedora|rhel|rocky|almalinux) if command_exists dnf; then dnf install -y python3-bcrypt; else yum install -y python3-bcrypt; fi ;;
+  esac
+  python3 -c 'import bcrypt' >/dev/null 2>&1 || fatal "The Python bcrypt library is unavailable after installation."
 }
 
 prompt_secret() {
@@ -166,9 +177,9 @@ prepare_stack() {
 
 generate_bcrypt_hash() {
   local password="$1"
-  # The official Wazuh indexer image ships the supported bcrypt utility. The
-  # password is passed through stdin rather than exposed in process arguments.
-  printf '%s\n' "$password" | docker run --rm -i --entrypoint bash "wazuh/wazuh-indexer:${WAZUH_VERSION#v}" -c 'IFS= read -r password; bash plugins/opensearch-security/tools/hash.sh -p "$password"' | tail -n 1
+  # bcrypt is generated locally; the password is supplied through stdin and
+  # never placed in a command-line argument or stored in a temporary file.
+  printf '%s' "$password" | python3 -c 'import bcrypt,sys; print(bcrypt.hashpw(sys.stdin.buffer.read(), bcrypt.gensalt()).decode())'
 }
 
 configure_credentials() {
@@ -244,6 +255,7 @@ main() {
     log "DRY-RUN: version=$WAZUH_VERSION home=$WAZUH_HOME api_bind=$WAZUH_API_BIND_ADDRESS JVM='$WAZUH_OPENSEARCH_JAVA_OPTS'"
   fi
   install_docker_if_needed
+  ensure_bcrypt
   prepare_stack
   configure_credentials
   generate_certificates
