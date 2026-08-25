@@ -6,6 +6,11 @@ cd "$ROOT_DIR"
 
 WAZUH_DIR="${WAZUH_HOME:-$ROOT_DIR/.wazuh}"
 WAZUH_COMPOSE="$WAZUH_DIR/single-node/docker-compose.yml"
+VELOCIRAPTOR_DIR="$ROOT_DIR/backend/runtime/velociraptor"
+VELOCIRAPTOR_BIN="$VELOCIRAPTOR_DIR/velociraptor"
+VELOCIRAPTOR_CONFIG="$VELOCIRAPTOR_DIR/server.config.yaml"
+VELOCIRAPTOR_LOG="$VELOCIRAPTOR_DIR/server.log"
+VELOCIRAPTOR_PID="$VELOCIRAPTOR_DIR/server.pid"
 
 run_privileged() {
   if [[ $EUID -eq 0 ]]; then
@@ -15,22 +20,36 @@ run_privileged() {
   fi
 }
 
-ensure_wazuh() {
+start_wazuh() {
   if [[ "${SENTROXIS_SKIP_WAZUH:-0}" == "1" ]]; then
-    printf '==> Skipping Wazuh setup because SENTROXIS_SKIP_WAZUH=1\n'
+    printf '==> Skipping Wazuh startup because SENTROXIS_SKIP_WAZUH=1\n'
     return
   fi
-
-  if [[ ! -f "$WAZUH_COMPOSE" ]]; then
-    printf '==> Wazuh is not installed for this checkout; starting the project-local installer\n'
-    run_privileged "$ROOT_DIR/wazuh_installation.sh"
-  else
-    printf '==> Starting the project-local Wazuh services\n'
-    run_privileged docker compose -f "$WAZUH_COMPOSE" up -d
-  fi
+  [[ -f "$WAZUH_COMPOSE" ]] || {
+    printf 'ERROR: Wazuh is not installed for this checkout. Run: sudo ./wazuh_installation.sh\n' >&2
+    exit 1
+  }
+  printf '==> Starting installed Wazuh services\n'
+  run_privileged docker compose -f "$WAZUH_COMPOSE" up -d
 }
 
-ensure_wazuh
+start_velociraptor() {
+  if [[ ! -x "$VELOCIRAPTOR_BIN" || ! -f "$VELOCIRAPTOR_CONFIG" ]]; then
+    printf '==> Velociraptor is not configured; run its separate wizard before startup\n'
+    return
+  fi
+  if [[ -f "$VELOCIRAPTOR_PID" ]] && kill -0 "$(cat "$VELOCIRAPTOR_PID")" 2>/dev/null; then
+    printf '==> Velociraptor is already running\n'
+    return
+  fi
+  printf '==> Starting installed Velociraptor server\n'
+  nohup "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend >"$VELOCIRAPTOR_LOG" 2>&1 &
+  printf '%s\n' "$!" > "$VELOCIRAPTOR_PID"
+  chmod 600 "$VELOCIRAPTOR_PID"
+}
+
+start_wazuh
+start_velociraptor
 
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
   printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2
@@ -67,7 +86,7 @@ npm run build
 cd "$ROOT_DIR"
 
 printf '\n==> Running shell and whitespace checks\n'
-bash -n start.sh setup_and_test.sh wazuh_installation.sh
+bash -n start.sh startup.sh wazuh_installation.sh
 git diff --check
 
 printf '\n==> All validation checks passed. Starting development servers\n'
@@ -76,7 +95,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 &
+PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --reload-dir "$ROOT_DIR/backend" --host 0.0.0.0 --port 8000 &
 cd frontend
 npm run dev -- --host 0.0.0.0 &
 cd "$ROOT_DIR"

@@ -45,7 +45,8 @@ sequenceDiagram
 ```text
 sentroxis-copilot/
 ├── README.md
-├── setup_and_test.sh
+├── startup.sh
+├── wazuh_installation.sh
 ├── backend/
 │   ├── main.py
 │   ├── requirements.txt
@@ -80,11 +81,13 @@ sentroxis-copilot/
 The project targets Python 3.10+ and a current Node.js runtime. The backend requirement range uses Pydantic 2.12+ because that release line includes initial Python 3.14 support. If an earlier interrupted attempt left a partial environment, the setup script can be rerun safely because it removes and recreates `backend/.venv` before installation. The shortest path is:
 
 ```bash
-chmod +x setup_and_test.sh
-./setup_and_test.sh
+sudo ./wazuh_installation.sh
+# Complete the separate Velociraptor wizard, then:
+chmod +x startup.sh
+./startup.sh
 ```
 
-The script checks that the checkout includes the Python 3.14 compatibility fix, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
+The Wazuh installer provisions the required Wazuh primary-node stack first. After the separate Velociraptor wizard is complete, `startup.sh` starts the installed Wazuh and Velociraptor services, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
 
 To run the services separately after setup:
 
@@ -154,7 +157,7 @@ The application now opens on the **Project setup** screen. It presents two separ
 
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
-For a local console deployment, run `./start.sh` from the cloned repository. The setup workflow automatically installs and starts the Wazuh primary-node stack for that checkout through `wazuh_installation.sh`; the Wazuh files are kept beside the project and no `/opt` path is required. The workflow then installs the Sentroxis application dependencies, runs validation, and starts the application. Wazuh installation requires `sudo` and prompts for three strong credentials on the first run. Set `SENTROXIS_SKIP_WAZUH=1` only when Wazuh is intentionally managed outside this checkout.
+For a local console deployment, install Wazuh first with `sudo ./wazuh_installation.sh`, then complete the separate Velociraptor wizard using the existing scripts. After both infrastructure components are installed and configured, run `./startup.sh`. The startup workflow starts the installed Wazuh services, starts the configured Velociraptor server, installs or verifies Sentroxis application dependencies, runs validation, and starts the backend and frontend. Wazuh installation requires `sudo` and prompts for three strong credentials on the first run. Set `SENTROXIS_SKIP_WAZUH=1` only when Wazuh is intentionally managed outside this checkout.
 
 Velociraptor remains a separate workflow owned by its existing setup scripts and guide. The Wazuh integration does not modify, install, or configure Velociraptor. See the [four-script Velociraptor setup guide](docs/velociraptor-setup.md) for that operator flow and its deployment boundaries.
 
@@ -174,14 +177,17 @@ After verification, both the browser flow and the four-script console workflow u
 
 The Velociraptor implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. The Wazuh installer does install Docker and the host bcrypt dependency when required, because Wazuh is a required privileged primary-node component. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
 
-After pulling the repository, the entire application can be started with one command:
+After pulling the repository, install the infrastructure components separately, then start the application:
 
 ```bash
 cd ~/Desktop/project/sentroxis-copilot
-./start.sh
+sudo ./wazuh_installation.sh
+# Run the existing Velociraptor wizard separately.
+./scripts/00_run_all_setup.py
+./startup.sh
 ```
 
-`start.sh` delegates to `setup_and_test.sh`, which first ensures the project-local Wazuh services are installed or running, then installs dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass.
+`startup.sh` starts already-installed Wazuh and Velociraptor services, installs or verifies application dependencies, runs the backend and frontend validation suites, and starts both development servers only when all checks pass. `start.sh` remains as a compatibility wrapper that delegates to `startup.sh`.
 
 ### References
 
