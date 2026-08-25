@@ -257,7 +257,13 @@ initialize_indexer_security() {
       export CACERT="/usr/share/wazuh-indexer/certs/root-ca.pem"
       export CERT="/usr/share/wazuh-indexer/certs/admin.pem"
       export KEY="/usr/share/wazuh-indexer/certs/admin-key.pem"
-      bash /securityadmin.sh
+      if ! output="$(bash /securityadmin.sh 2>&1)"; then
+        printf "%s\\n" "$output"
+        exit 1
+      fi
+      printf "%s\\n" "$output"
+      grep -q "Configuration for 'internalusers' created or updated" <<<"$output"
+      ! grep -q "ERR:" <<<"$output"
     '; then
       log "Wazuh indexer security configuration initialized."
       return
