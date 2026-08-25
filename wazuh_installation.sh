@@ -53,7 +53,9 @@ Environment overrides:
   WAZUH_API_PASSWORD            Non-default Wazuh API password.
 
 Passwords may be supplied through the environment for automation, but protected
-interactive prompts are preferred. Never put credentials in source control.
+interactive prompts are preferred. Passwords must be printable, contain no whitespace,
+and include uppercase, lowercase, a number, and a special character. Never put
+credentials in source control.
 EOF
 }
 
@@ -154,8 +156,8 @@ prompt_secret() {
     printf -v "$var_name" '%s' "$value"
   fi
   (( ${#value} >= MIN_PASSWORD_LENGTH )) || fatal "$var_name must contain at least $MIN_PASSWORD_LENGTH characters."
-  [[ "$value" =~ ^[A-Za-z0-9._@%+=:,/-]+$ ]] || fatal "$var_name contains unsupported characters; use letters, digits, and . _ @ % + = : , / -."
-  [[ "$value" =~ [A-Z] && "$value" =~ [a-z] && "$value" =~ [0-9] && "$value" =~ [._@%+=:,/-] ]] || fatal "$var_name must include uppercase, lowercase, a number, and a special character."
+  [[ "$value" =~ ^[[:graph:]]+$ ]] || fatal "$var_name must contain printable non-whitespace characters only."
+  [[ "$value" =~ [A-Z] && "$value" =~ [a-z] && "$value" =~ [0-9] && "$value" =~ [^[:alnum:]] ]] || fatal "$var_name must include uppercase, lowercase, a number, and a special character."
 }
 
 prepare_stack() {
