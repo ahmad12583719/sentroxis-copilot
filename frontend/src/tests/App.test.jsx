@@ -1,8 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../App'
-
-const setupState = (endpoint = null) => ({ servers: [{ key: 'wazuh', name: 'Wazuh Server', tagline: 'Detection and alert telemetry', description: 'Wazuh', status: endpoint ? 'ready' : 'not_started', endpoint, version: null, steps: [{ id: 'wazuh-endpoint', title: 'Manager endpoint', description: 'Endpoint' }] }, { key: 'velociraptor', name: 'Velociraptor Server', tagline: 'Endpoint evidence collection', description: 'Velociraptor', status: endpoint ? 'ready' : 'not_started', endpoint, version: null, steps: [{ id: 'vr-endpoint', title: 'Server endpoint', description: 'Endpoint' }] }] })
 
 function response(data, ok = true) { return Promise.resolve({ ok, json: () => Promise.resolve(data) }) }
 
@@ -22,29 +20,31 @@ describe('Sentroxis Copilot application', () => {
     expect(screen.getByRole('button', { name: /create secure account/i })).toBeInTheDocument()
   })
 
-  it('opens the first-run installation setup after authentication', async () => {
+  it('opens the Wazuh workspace with exactly four primary tabs after authentication', async () => {
     global.fetch = vi.fn((url) => {
       if (url === '/api/auth/status') return response({ authenticated: true, registration_open: false, user: { id: 'usr-1', name: 'Test Analyst', email: 'test@example.com', role: 'admin' } })
-      if (url === '/api/setup') return response(setupState())
       if (url.startsWith('/api/alerts')) return response({ items: [], total: 0 })
       return response({})
     })
     render(<App />)
-    expect(await screen.findByRole('heading', { name: /set up your command center/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /wazuh server/i })).toBeInTheDocument()
-    expect(screen.getAllByText(/open installation/i)).toHaveLength(2)
-    expect(screen.queryByText(/powerShell encoded/i)).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /your security command center/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Wazuh' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Velociraptor' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'Agent management' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'AI co-pilot' }).length).toBeGreaterThan(0)
+    expect(screen.getByTitle('Wazuh dashboard')).toBeInTheDocument()
   })
 
-  it('opens integration setup when a server is already configured', async () => {
+  it('opens the Wazuh agent management tab from the primary navigation', async () => {
     global.fetch = vi.fn((url) => {
       if (url === '/api/auth/status') return response({ authenticated: true, registration_open: false, user: { id: 'usr-1', name: 'Test Analyst', email: 'test@example.com', role: 'admin' } })
-      if (url === '/api/setup') return response(setupState('https://wazuh.internal'))
-      return response({ items: [], total: 0 })
+      if (url.startsWith('/api/alerts')) return response({ items: [], total: 0 })
+      return response({})
     })
     render(<App />)
-    expect(await screen.findByRole('heading', { name: /configure your data plane/i })).toBeInTheDocument()
-    expect(screen.getByText(/existing security servers detected/i)).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText(/update connection/i)).toBeInTheDocument())
+    await screen.findByRole('heading', { name: /your security command center/i })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Agent management' })[0])
+    expect(await screen.findByRole('heading', { name: /manage your fleet/i })).toBeInTheDocument()
+    expect(screen.getByText(/managed by the velociraptor workstream/i)).toBeInTheDocument()
   })
 })

@@ -6,12 +6,6 @@ cd "$ROOT_DIR"
 
 WAZUH_DIR="${WAZUH_HOME:-$ROOT_DIR/.wazuh}"
 WAZUH_COMPOSE="$WAZUH_DIR/single-node/docker-compose.yml"
-VELOCIRAPTOR_DIR="$ROOT_DIR/backend/runtime/velociraptor"
-VELOCIRAPTOR_BIN="$VELOCIRAPTOR_DIR/velociraptor"
-VELOCIRAPTOR_CONFIG="$VELOCIRAPTOR_DIR/server.config.yaml"
-VELOCIRAPTOR_LOG="$VELOCIRAPTOR_DIR/server.log"
-VELOCIRAPTOR_PID="$VELOCIRAPTOR_DIR/server.pid"
-
 run_privileged() {
   if [[ $EUID -eq 0 ]]; then
     "$@"
@@ -33,23 +27,7 @@ start_wazuh() {
   run_privileged docker compose -f "$WAZUH_COMPOSE" up -d
 }
 
-start_velociraptor() {
-  if [[ ! -x "$VELOCIRAPTOR_BIN" || ! -f "$VELOCIRAPTOR_CONFIG" ]]; then
-    printf '==> Velociraptor is not configured; run its separate wizard before startup\n'
-    return
-  fi
-  if [[ -f "$VELOCIRAPTOR_PID" ]] && kill -0 "$(cat "$VELOCIRAPTOR_PID")" 2>/dev/null; then
-    printf '==> Velociraptor is already running\n'
-    return
-  fi
-  printf '==> Starting installed Velociraptor server\n'
-  nohup "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend >"$VELOCIRAPTOR_LOG" 2>&1 &
-  printf '%s\n' "$!" > "$VELOCIRAPTOR_PID"
-  chmod 600 "$VELOCIRAPTOR_PID"
-}
-
 start_wazuh
-start_velociraptor
 
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
   printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2

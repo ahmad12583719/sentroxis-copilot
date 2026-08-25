@@ -157,3 +157,41 @@ button:active { transform: scale(.98); }
 .installer-config-form .installer-checkbox input { width: 13px; height: 13px; flex: 0 0 13px; margin-top: 1px; accent-color: #2df7b5; }
 .installer-config-form .installer-action { margin-top: 4px; }
 @media (max-width: 1100px) { .installer-flow { grid-template-columns: 1fr; gap: 12px; }.installer-connector { display: none; } }
+
+/* Wazuh operations workspace */
+.wazuh-dashboard-panel { overflow: hidden; margin-bottom: 16px; }
+.dashboard-frame-wrap { height: 560px; background: #061014; border-top: 1px solid #1b343b; border-bottom: 1px solid #1b343b; }
+.wazuh-dashboard-frame { width: 100%; height: 100%; border: 0; background: #061014; }
+.wazuh-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; margin-bottom: 16px; }
+.wazuh-summary-grid .metric-card { min-height: 130px; }
+.telemetry-panel, .recent-alerts-panel, .fleet-panel { margin-bottom: 16px; overflow: hidden; }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 0 20px 20px; }
+.agent-card { border: 1px solid #214047; border-radius: 9px; background: linear-gradient(145deg, #10252a, #0b181d); padding: 15px; }
+.agent-card-top { display: flex; align-items: center; justify-content: space-between; }
+.agent-icon { width: 31px; height: 31px; display: grid; place-items: center; border-radius: 7px; color: #5ce5b6; background: #123a37; border: 1px solid #23635a; }
+.agent-health { display: inline-flex; align-items: center; gap: 5px; color: #62d9ae; font: 9px 'DM Mono'; text-transform: uppercase; }
+.agent-health i { width: 5px; height: 5px; border-radius: 50%; background: #2df7b5; box-shadow: 0 0 8px #2df7b5; }
+.agent-card h3 { margin: 16px 0 4px; color: #d8e9e5; font-size: 13px; }
+.agent-card p { margin: 0; color: #769196; font: 10px 'DM Mono'; }
+.agent-card-meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 17px; padding-top: 11px; border-top: 1px solid #1b343b; color: #627b81; font: 9px 'DM Mono'; }
+.agent-card-meta strong { color: #d1e5de; }
+.agent-empty { display: flex; align-items: center; gap: 10px; }
+.agent-empty svg { color: #547d7e; flex: 0 0 auto; }
+.agent-management-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr); gap: 16px; margin-bottom: 16px; }
+.enrollment-panel, .reserved-panel { min-height: 330px; overflow: hidden; }
+.form-body { padding: 2px 21px 22px; }
+.form-body select { width: 100%; margin: 8px 0 14px; padding: 10px; border: 1px solid #28474d; border-radius: 6px; color: #cde1dd; background: #09171b; font: 10px 'DM Mono'; }
+.form-help { color: #789196; font-size: 11px; line-height: 1.6; }
+.command-box { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 18px 0; padding: 11px 12px; border: 1px solid #294c52; border-radius: 7px; background: #071317; }
+.command-box > div { display: flex; align-items: flex-start; gap: 9px; min-width: 0; color: #61d8b0; }
+.command-box code { color: #a4c9c1; font: 9px/1.5 'DM Mono'; overflow-wrap: anywhere; }
+.copy-confirm { margin: -10px 0 12px; color: #66dfb3; font: 9px 'DM Mono'; }
+.coming-soon { color: #29443f; font-size: 8px; margin-left: 4px; }
+.button:disabled { cursor: not-allowed; opacity: .55; }
+.reserved-content { display: grid; justify-items: center; gap: 10px; padding: 23px 25px; text-align: center; }
+.reserved-icon { width: 50px; height: 50px; display: grid; place-items: center; border: 1px solid #3d3568; border-radius: 50%; color: #a89aff; background: #211d3b; }
+.reserved-content strong { color: #d8d2f2; font-size: 13px; }
+.reserved-content p { max-width: 310px; margin: 0; color: #77868d; font-size: 11px; line-height: 1.6; }
+.reserved-status { padding: 6px 9px; border: 1px solid #4c416e; border-radius: 5px; color: #b6a8ee; background: #211d35; font: 9px 'DM Mono'; }
+@media (max-width: 900px) { .agent-management-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 460px; } }
+@media (max-width: 650px) { .wazuh-summary-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 390px; }.agent-grid { grid-template-columns: 1fr; }.topnav { gap: 10px; margin-left: 18px; overflow-x: auto; }.topbar { padding: 0 16px; }.environment-pill { display: none; } }
