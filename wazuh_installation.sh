@@ -179,9 +179,9 @@ prepare_stack() {
   fi
   [[ -f "$WAZUH_HOME/single-node/docker-compose.yml" ]] || fatal "Pinned Wazuh release lacks the expected single-node Compose files."
   # Previous failed runs may have left malformed customized files behind. The
-  # installer owns these two files, so restore only them from the pinned tag;
+  # installer owns these three files, so restore only them from the pinned tag;
   # certificates, volumes, and other operator files remain untouched.
-  git -C "$WAZUH_HOME" checkout -- single-node/docker-compose.yml single-node/config/wazuh_indexer/internal_users.yml
+  git -C "$WAZUH_HOME" checkout -- single-node/docker-compose.yml single-node/config/wazuh_indexer/internal_users.yml single-node/config/wazuh_dashboard/wazuh.yml
   cd "$WAZUH_HOME/single-node"
 }
 
@@ -195,7 +195,7 @@ generate_bcrypt_hash() {
 }
 
 configure_credentials() {
-  local compose="docker-compose.yml" users="config/wazuh_indexer/internal_users.yml" admin_hash dashboard_hash
+  local compose="docker-compose.yml" users="config/wazuh_indexer/internal_users.yml" dashboard_api="config/wazuh_dashboard/wazuh.yml" admin_hash dashboard_hash
   prompt_secret WAZUH_INDEXER_PASSWORD "Wazuh indexer admin password"
   prompt_secret WAZUH_DASHBOARD_PASSWORD "Wazuh dashboard password"
   prompt_secret WAZUH_API_PASSWORD "Wazuh Server API password"
@@ -204,6 +204,7 @@ configure_credentials() {
   umask 077
   cp -p "$compose" "$compose.sentroxis-backup"
   cp -p "$users" "$users.sentroxis-backup"
+  cp -p "$dashboard_api" "$dashboard_api.sentroxis-backup"
 
   admin_hash="$(generate_bcrypt_hash "$WAZUH_INDEXER_PASSWORD")"
   dashboard_hash="$(generate_bcrypt_hash "$WAZUH_DASHBOARD_PASSWORD")"
@@ -216,6 +217,16 @@ text = path.read_text()
 text = re.sub(r'(?ms)(^admin:\n\s+hash: )"[^"]+"', lambda m: m.group(1) + '"' + os.environ['ADMIN_HASH'] + '"', text, count=1)
 text = re.sub(r'(?ms)(^kibanaserver:\n\s+hash: )"[^"]+"', lambda m: m.group(1) + '"' + os.environ['DASHBOARD_HASH'] + '"', text, count=1)
 path.write_text(text)
+PY
+
+  API_PASSWORD="$WAZUH_API_PASSWORD" python3 - "$dashboard_api" <<'PY'
+import json, os, pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text()
+updated = re.sub(r'(?m)^(\s+password:\s*)["\'][^"\']*["\']\s*$', lambda m: m.group(1) + json.dumps(os.environ['API_PASSWORD']), text, count=1)
+if updated == text:
+    raise SystemExit("Could not locate Wazuh dashboard API password in wazuh.yml")
+path.write_text(updated)
 PY
 
   COMPOSE_FILE="$compose" INDEXER_PASSWORD="$WAZUH_INDEXER_PASSWORD" API_PASSWORD="$WAZUH_API_PASSWORD" DASHBOARD_PASSWORD="$WAZUH_DASHBOARD_PASSWORD" API_BIND_ADDRESS="$WAZUH_API_BIND_ADDRESS" JVM_OPTS="$WAZUH_OPENSEARCH_JAVA_OPTS" python3 - <<'PY'
@@ -238,8 +249,8 @@ path.write_text(''.join(output))
 PY
   # The indexer container runs as UID 1000 and must read this bind-mounted
   # file during securityadmin. It contains bcrypt hashes, not plaintext secrets.
-  chmod 644 "$users"
-  chmod 600 "$compose.sentroxis-backup"
+  chmod 644 "$users" "$dashboard_api"
+  chmod 600 "$compose.sentroxis-backup" "$users.sentroxis-backup" "$dashboard_api.sentroxis-backup"
 }
 
 generate_certificates() {
