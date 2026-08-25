@@ -258,6 +258,7 @@ class VelociraptorInstallation(BaseModel):
     command_preview: str
     config_path: str
     server_command_preview: str
+    frontend_port: int = Field(default=8010, ge=1, le=65535)
 
 
 class VelociraptorPrepareResponse(BaseModel):
@@ -284,6 +285,7 @@ class VelociraptorWizardStartResponse(BaseModel):
     output: str
     running: bool
     config_path: str
+    frontend_port: int = Field(default=8010, ge=1, le=65535)
     message: str
 
 
@@ -303,6 +305,7 @@ class VelociraptorWizardOutput(BaseModel):
     exit_code: int | None = None
     config_path: str
     config_ready: bool
+    frontend_port: int = Field(default=8010, ge=1, le=65535)
 
 
 class VelociraptorRunRequest(BaseModel):

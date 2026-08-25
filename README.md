@@ -154,6 +154,8 @@ The application now opens on the **Project setup** screen. It presents two separ
 
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
+For a local operator-driven Velociraptor preparation flow, use [`scripts/setup_velociraptor.py`](scripts/setup_velociraptor.py). It downloads a pinned official binary for the detected supported host, verifies its SHA-256 hash, opens the official interactive configuration wizard for runtime answers, finalizes `Frontend.bind_port` as `8010`, and synchronizes default generated `Client.server_urls` entries from port `8000` to `8010`. See the [Velociraptor setup guide](docs/velociraptor-setup.md) for usage and deployment boundaries.
+
 | Setup item | Current behavior |
 |---|---|
 | Wazuh Server | Manager endpoint, Indexer endpoint, service identity, and read-only health readiness sequence |
@@ -166,7 +168,7 @@ The setup screen records readiness state but does not install software on remote
 
 The Project Setup screen now includes a complete, approval-gated Velociraptor flow. The backend selects a platform from an allowlisted official release catalog, downloads the matching Velocidex GitHub asset, verifies its published SHA-256 digest, and stores the verified binary under the ignored `backend/runtime/velociraptor/` directory.
 
-After verification, the UI can start the official interactive command `velociraptor config generate -i` without shell interpolation. Its terminal output is streamed into the dashboard and the operator can provide bounded wizard answers. Once `server.config.yaml` exists, the final **Run Velociraptor server** action requires a separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
+After verification, the UI can start the official interactive command `velociraptor config generate -i` without shell interpolation. Its terminal output is streamed into the dashboard and the operator can provide bounded wizard answers. Once `server.config.yaml` exists, the wizard finalizes `Frontend.bind_port` as `8010` and synchronizes default generated client URLs to the same port. The final **Run Velociraptor server** action then requires a separate explicit approval and launches only the fixed command `velociraptor --config server.config.yaml frontend`. A stop control is available for the process started by Sentroxis.
 
 The implementation does not accept arbitrary download URLs, does not execute AI-generated commands, does not create systemd services, and does not install privileged packages automatically. Production deployments should use the official deployment guidance for TLS, SSO, private-network controls, service accounts, backups, and operating-system service management. The quickstart self-signed and Basic authentication mode is suitable only for short-term private testing [1] [2].
 

@@ -43,3 +43,34 @@ def test_host_platform_is_known_for_supported_linux(tmp_path, monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Linux")
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
     assert service.detect_host_platform() is VelociraptorPlatform.linux_amd64
+
+
+def test_finalize_config_sets_only_frontend_port(tmp_path):
+    config_path = tmp_path / "server.config.yaml"
+    config_path.write_text(
+        "Client:\n"
+        "  server_urls:\n"
+        "    - https://example.test:8000/\n"
+        "Frontend:\n"
+        "  bind_address: 127.0.0.1\n"
+        "  bind_port: 8000\n"
+        "GUI:\n"
+        "  bind_port: 8889\n",
+        encoding="utf-8",
+    )
+
+    changed = VelociraptorSetupService._set_frontend_port(config_path)
+
+    assert changed is True
+    content = config_path.read_text(encoding="utf-8")
+    assert "Frontend:\n  bind_address: 127.0.0.1\n  bind_port: 8010\n" in content
+    assert "https://example.test:8010/" in content
+    assert "GUI:\n  bind_port: 8889" in content
+
+
+def test_finalize_config_rejects_missing_frontend_port(tmp_path):
+    config_path = tmp_path / "server.config.yaml"
+    config_path.write_text("Frontend:\n  bind_address: 127.0.0.1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no numeric bind_port"):
+        VelociraptorSetupService._set_frontend_port(config_path)

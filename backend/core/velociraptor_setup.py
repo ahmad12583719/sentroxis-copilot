@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform as host_platform
+import re
 try:
     import pty
 except ImportError:  # pragma: no cover - Windows does not provide pty
@@ -28,6 +29,7 @@ from .models import (
 
 
 RELEASE = "0.77.2"
+DEFAULT_FRONTEND_PORT = 8010
 RELEASES_URL = "https://docs.velociraptor.app/downloads/"
 SIGNATURE_KEY = "0572F28B4EF19A043F4CBBE0B22A7FB19CB6CFA1"
 
@@ -202,6 +204,64 @@ class VelociraptorSetupService:
         return VelociraptorInstallation.model_validate_json(self.installation_path.read_text(encoding="utf-8"))
 
     @staticmethod
+    def _set_frontend_port(config_path: Path, port: int = DEFAULT_FRONTEND_PORT) -> bool:
+        """Set Frontend.bind_port and synchronize default client URLs without exposing secrets."""
+        content = config_path.read_text(encoding="utf-8")
+        lines = content.splitlines(keepends=True)
+        in_client = False
+        in_server_urls = False
+        in_frontend = False
+        found_frontend = False
+        port_updated = False
+        top_level_heading = re.compile(r"^[A-Za-z][A-Za-z0-9_]*:\s*(?:#.*)?(?:\r?\n)?$")
+        client_heading = re.compile(r"^Client:\s*(?:#.*)?(?:\r?\n)?$")
+        frontend_heading = re.compile(r"^Frontend:\s*(?:#.*)?(?:\r?\n)?$")
+        server_urls_heading = re.compile(r"^\s+server_urls:\s*(?:#.*)?(?:\r?\n)?$")
+        port_line = re.compile(r"^(\s+bind_port\s*:\s*)\d+(\s*(?:#.*)?)(\r?\n)?$")
+        default_client_url = re.compile(
+            r"^(\s*-\s*(?:https|wss)://(?:\[[^\]]+\]|[^/:\s]+)):8000((?:/\S*)?)(\s*(?:#.*)?)(\r?\n)?$"
+        )
+
+        for index, line in enumerate(lines):
+            if top_level_heading.match(line):
+                in_client = bool(client_heading.match(line))
+                in_frontend = bool(frontend_heading.match(line))
+                in_server_urls = False
+                found_frontend = found_frontend or in_frontend
+                continue
+            if in_client and server_urls_heading.match(line):
+                in_server_urls = True
+                continue
+            if in_server_urls and line.lstrip().startswith("-"):
+                match = default_client_url.match(line)
+                if match:
+                    newline = match.group(4) or "\n"
+                    lines[index] = f"{match.group(1)}:{port}{match.group(2)}{match.group(3)}{newline}"
+                continue
+            if in_server_urls and line.strip() and not line.startswith((" ", "\t")):
+                in_server_urls = False
+            if not in_frontend:
+                continue
+            match = port_line.match(line)
+            if match:
+                newline = match.group(3) or "\n"
+                lines[index] = f"{match.group(1)}{port}{match.group(2)}{newline}"
+                port_updated = True
+                in_frontend = False
+
+        if not found_frontend:
+            raise ValueError("Generated configuration has no Frontend section")
+        if not port_updated:
+            raise ValueError("Generated Frontend section has no numeric bind_port")
+        updated = "".join(lines)
+        if updated == content:
+            return False
+        temporary = config_path.with_suffix(config_path.suffix + ".tmp")
+        temporary.write_text(updated, encoding="utf-8")
+        os.replace(temporary, config_path)
+        return True
+
+    @staticmethod
     def _sha256(path: Path) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as source:
@@ -234,6 +294,10 @@ class VelociraptorSetupService:
         session = self.sessions.get(session_id)
         if not session:
             raise KeyError(session_id)
+        if session.process.poll() is not None and session.process.returncode == 0 and session.config_path.is_file():
+            self._set_frontend_port(session.config_path)
+            if os.name == "posix":
+                session.config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return session
 
     def send_input(self, session_id: str, value: str) -> WizardSession:
