@@ -234,8 +234,20 @@ import json, os, pathlib, re
 path = pathlib.Path(os.environ['COMPOSE_FILE'])
 lines = path.read_text().splitlines(keepends=True)
 output = []
+skip_dashboard_ports = False
+current_service = None
 for line in lines:
     indent = re.match(r'^(\s*)', line).group(1)
+    service_match = re.match(r'^  ([A-Za-z0-9_.-]+):\s*$', line)
+    if service_match:
+        current_service = service_match.group(1)
+    if current_service == 'wazuh.dashboard' and re.match(r'^    ports:\s*$', line):
+        skip_dashboard_ports = True
+        continue
+    if skip_dashboard_ports:
+        if re.match(r'^      -\s+', line):
+            continue
+        skip_dashboard_ports = False
     if re.match(r'^\s*-\s*["\']?(INDEXER_PASSWORD|API_PASSWORD|DASHBOARD_PASSWORD)(?::|=)', line):
         key = re.search(r'(INDEXER_PASSWORD|API_PASSWORD|DASHBOARD_PASSWORD)', line).group(1)
         output.append(indent + '- ' + json.dumps(key + '=' + os.environ[key]) + '\n')
@@ -243,9 +255,6 @@ for line in lines:
         output.append(indent + '- ' + json.dumps('OPENSEARCH_JAVA_OPTS=' + os.environ['JVM_OPTS']) + '\n')
     elif '55000:55000' in line and re.match(r'^\s*-\s*["\']?[^\n]*55000:55000', line):
         output.append(indent + '- ' + json.dumps(os.environ['API_BIND_ADDRESS'] + ':55000:55000') + '\n')
-    elif re.search(r'443:5601', line):
-        # Port 443 is owned by the project-managed TLS proxy below.
-        continue
     else:
         output.append(line)
 path.write_text(''.join(output))
