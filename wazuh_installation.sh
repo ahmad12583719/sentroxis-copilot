@@ -234,7 +234,10 @@ for line in lines:
         output.append(line)
 path.write_text(''.join(output))
 PY
-  chmod 600 "$users" "$compose.sentroxis-backup"
+  # The indexer container runs as UID 1000 and must read this bind-mounted
+  # file during securityadmin. It contains bcrypt hashes, not plaintext secrets.
+  chmod 644 "$users"
+  chmod 600 "$compose.sentroxis-backup"
 }
 
 generate_certificates() {
