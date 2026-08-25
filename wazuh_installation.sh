@@ -243,6 +243,9 @@ for line in lines:
         output.append(indent + '- ' + json.dumps('OPENSEARCH_JAVA_OPTS=' + os.environ['JVM_OPTS']) + '\n')
     elif '55000:55000' in line and re.match(r'^\s*-\s*["\']?[^\n]*55000:55000', line):
         output.append(indent + '- ' + json.dumps(os.environ['API_BIND_ADDRESS'] + ':55000:55000') + '\n')
+    elif re.search(r'443:5601', line):
+        # Port 443 is owned by the project-managed TLS proxy below.
+        continue
     else:
         output.append(line)
 path.write_text(''.join(output))
@@ -258,7 +261,8 @@ configure_local_proxy() {
   cat > docker-compose.sentroxis.yml <<'YAML'
 services:
   wazuh.dashboard:
-    ports: []
+    expose:
+      - "5601"
   wazuh.dashboard_proxy:
     image: nginx:1.27-alpine
     hostname: wazuh.dashboard_proxy
