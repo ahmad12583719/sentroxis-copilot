@@ -45,6 +45,25 @@ python -m pip install --upgrade pip
 python -m pip install --only-binary=:all: -r backend/requirements.txt
 python -m pip check
 
+prepare_frontend_tls() {
+  local tls_dir="$ROOT_DIR/runtime/sentroxis-dev-tls"
+  if [[ -f "$tls_dir/localhost.key" && -f "$tls_dir/localhost.crt" ]]; then
+    return
+  fi
+  printf '\n==> Creating local HTTPS certificate for the Sentroxis frontend\n'
+  mkdir -p "$tls_dir"
+  chmod 700 "$tls_dir"
+  openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 825 \
+    -keyout "$tls_dir/localhost.key" \
+    -out "$tls_dir/localhost.crt" \
+    -subj '/CN=localhost' \
+    -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+  chmod 600 "$tls_dir/localhost.key"
+  chmod 644 "$tls_dir/localhost.crt"
+}
+
+prepare_frontend_tls
+
 printf '\n==> Installing frontend dependencies\n'
 cd frontend
 npm install
@@ -76,7 +95,7 @@ trap cleanup EXIT INT TERM
 
 PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --reload-dir "$ROOT_DIR/backend" --host 0.0.0.0 --port 8000 &
 cd frontend
-npm run dev -- --host 0.0.0.0 &
+VITE_HTTPS_KEY="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.key" VITE_HTTPS_CERT="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.crt" npm run dev -- --host 0.0.0.0 &
 cd "$ROOT_DIR"
-printf 'Backend:  http://localhost:8000\nFrontend: http://localhost:5173\nPress Ctrl+C to stop both servers.\n'
+printf 'Backend:  http://localhost:8000\nFrontend: https://localhost:5173\nWazuh:    https://localhost/\nPress Ctrl+C to stop both servers.\n'
 wait

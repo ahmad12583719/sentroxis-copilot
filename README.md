@@ -87,7 +87,7 @@ chmod +x startup.sh
 ./startup.sh
 ```
 
-The Wazuh installer provisions the required Wazuh primary-node stack first. After the separate Velociraptor wizard is complete, `startup.sh` starts the installed Wazuh and Velociraptor services, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `http://localhost:5173`.
+The Wazuh installer provisions the required Wazuh primary-node stack first. After the separate Velociraptor wizard is complete, `startup.sh` starts the installed Wazuh and Velociraptor services, creates or refreshes `backend/.venv`, installs the Python dependencies from binary wheels, installs the frontend dependencies, runs Pytest and Vitest, and only starts the FastAPI and Vite development servers if both suites pass. If the checkout is stale, it stops immediately with a `git pull origin main` instruction instead of attempting a Rust source build. The API is available at `http://localhost:8000` and the frontend at `https://localhost:5173`. The first browser visit may show a local self-signed certificate warning; accept it for local testing. The Wazuh dashboard is available at `https://localhost/` and is embedded in the Wazuh tab.
 
 To run the services separately after setup:
 
