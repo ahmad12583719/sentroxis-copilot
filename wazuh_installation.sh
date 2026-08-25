@@ -11,6 +11,8 @@
 #
 # This script does not enroll endpoints, alter firewall rules, enable active
 # response, or publish secrets. Run it on the Sentroxis primary Linux node.
+# By default, the Wazuh deployment is stored in .wazuh beside this script, so
+# the project can be cloned and run from any directory.
 #
 # Usage:
 #   sudo ./wazuh_installation.sh
@@ -20,8 +22,9 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly DEFAULT_VERSION="v4.7.5"
-readonly DEFAULT_HOME="/opt/sentroxis/wazuh"
+readonly DEFAULT_HOME="${SCRIPT_DIR}/.wazuh"
 readonly OFFICIAL_REPO="https://github.com/wazuh/wazuh-docker.git"
 readonly MIN_PASSWORD_LENGTH=20
 
@@ -45,7 +48,7 @@ Options:
 
 Environment overrides:
   WAZUH_VERSION                 Wazuh Docker tag; defaults to v4.7.5.
-  WAZUH_HOME                    Installation directory; defaults to /opt/sentroxis/wazuh.
+  WAZUH_HOME                    Installation directory; defaults to .wazuh beside this script.
   WAZUH_API_BIND_ADDRESS        Host bind address for API port 55000; defaults to 127.0.0.1.
   WAZUH_OPENSEARCH_JAVA_OPTS    JVM options; must remain at or below 2 GiB.
   WAZUH_INDEXER_PASSWORD        Non-default indexer admin password.
