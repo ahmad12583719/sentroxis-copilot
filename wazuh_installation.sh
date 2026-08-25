@@ -189,7 +189,9 @@ generate_bcrypt_hash() {
   local password="$1"
   # bcrypt is generated locally; the password is supplied through stdin and
   # never placed in a command-line argument or stored in a temporary file.
-  printf '%s' "$password" | python3 -c 'import bcrypt,sys; print(bcrypt.hashpw(sys.stdin.buffer.read(), bcrypt.gensalt()).decode())'
+  # Python bcrypt emits $2b$ hashes; Wazuh/OpenSearch 2.8 expects the
+  # $2a$/$2y$ variants used by the official internal_users.yml template.
+  printf '%s' "$password" | python3 -c 'import bcrypt,sys; print(bcrypt.hashpw(sys.stdin.buffer.read(), bcrypt.gensalt()).decode().replace("$2b$", "$2y$", 1))'
 }
 
 configure_credentials() {
