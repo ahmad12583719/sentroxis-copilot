@@ -84,14 +84,14 @@ Generated server and client YAML files contain deployment-sensitive material. On
 
 `startup.sh` no longer installs, requires, or starts Wazuh. Wazuh remains an optional external integration; the application starts without it and displays its existing integration state when configured.
 
-The **Velociraptor** page now shows the local server status, configuration path, log path, fixed frontend port, and selected GUI port. After `server.config.yaml` has been generated, select **Start local server** and explicitly confirm the prompt. Sentroxis runs only the verified project-local binary using the generated configuration:
+The **Velociraptor** page now shows the local server status, configuration path, log path, fixed frontend port, and selected GUI port. When `startup.sh` finds both the verified binary and `server.config.yaml`, it starts the project-local server automatically. The dashboard’s **Start local server** button remains available as an explicit retry control when startup was skipped or the process has been stopped. Sentroxis runs only the verified project-local binary using the generated configuration:
 
 ```bash
 <project>/backend/runtime/velociraptor/velociraptor \
   --config <project>/backend/runtime/velociraptor/server.config.yaml frontend -v
 ```
 
-The status panel refreshes automatically and offers a separate explicit stop control. On POSIX hosts, the service retains its PID in `backend/runtime/velociraptor/velociraptor-server.pid` and validates that the process still belongs to the generated local configuration before treating it as running.
+The status panel refreshes automatically and offers a separate explicit stop control. On POSIX hosts, startup and the backend both use `backend/runtime/velociraptor/velociraptor-server.pid`; the backend validates that the PID still belongs to the generated local configuration before treating it as running.
 
 When the server is running, the right-hand half-page panel embeds the configured Velociraptor GUI URL. An **Open separately** link is also provided because browser certificate warnings or a GUI framing policy can prevent an embedded self-signed page from loading. The server log is written to `backend/runtime/velociraptor/velociraptor-server.log`.
 

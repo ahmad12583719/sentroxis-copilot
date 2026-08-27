@@ -8,6 +8,48 @@ cd "$ROOT_DIR"
 # install, require, or start Wazuh services. Configure its API variables only
 # when Wazuh telemetry is available for this deployment.
 
+VELOCIRAPTOR_DIR="$ROOT_DIR/backend/runtime/velociraptor"
+VELOCIRAPTOR_BIN="$VELOCIRAPTOR_DIR/velociraptor"
+VELOCIRAPTOR_CONFIG="$VELOCIRAPTOR_DIR/server.config.yaml"
+VELOCIRAPTOR_LOG="$VELOCIRAPTOR_DIR/velociraptor-server.log"
+VELOCIRAPTOR_PID="$VELOCIRAPTOR_DIR/velociraptor-server.pid"
+VELOCIRAPTOR_STARTED_PID=""
+
+prepare_velociraptor_log_directory() {
+  local output_directory
+  output_directory="$(sed -n '/^Logging:/,/^[^[:space:]]/{s/^[[:space:]]*output_directory:[[:space:]]*//p}' "$VELOCIRAPTOR_CONFIG" | head -n 1)"
+  [[ -z "$output_directory" ]] && return 0
+  if ! mkdir -p "$output_directory"; then
+    printf 'WARNING: Velociraptor logging directory is not writable: %s\n' "$output_directory" >&2
+    printf 'WARNING: Regenerate server.config.yaml with a user-writable directory, such as ~/.sentroxis/velociraptor.\n' >&2
+    return 1
+  fi
+}
+
+start_velociraptor() {
+  if [[ ! -x "$VELOCIRAPTOR_BIN" || ! -f "$VELOCIRAPTOR_CONFIG" ]]; then
+    printf '==> Velociraptor local server is not configured; dashboard controls remain available after setup.\n'
+    return 0
+  fi
+  if ! prepare_velociraptor_log_directory; then
+    return 0
+  fi
+  rm -f "$VELOCIRAPTOR_PID"
+  printf '==> Starting project-local Velociraptor server\n'
+  "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend -v >> "$VELOCIRAPTOR_LOG" 2>&1 &
+  VELOCIRAPTOR_STARTED_PID="$!"
+  printf '%s\n' "$VELOCIRAPTOR_STARTED_PID" > "$VELOCIRAPTOR_PID"
+  chmod 600 "$VELOCIRAPTOR_PID"
+  sleep 1
+  if ! kill -0 "$VELOCIRAPTOR_STARTED_PID" 2>/dev/null; then
+    printf 'WARNING: Velociraptor server exited during startup; inspect: %s\n' "$VELOCIRAPTOR_LOG" >&2
+    rm -f "$VELOCIRAPTOR_PID"
+    VELOCIRAPTOR_STARTED_PID=""
+    return 0
+  fi
+  printf '==> Velociraptor server started (PID %s); GUI status is available in the Velociraptor dashboard.\n' "$VELOCIRAPTOR_STARTED_PID"
+}
+
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
   printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2
   exit 1
@@ -41,6 +83,7 @@ prepare_frontend_tls() {
 }
 
 prepare_frontend_tls
+start_velociraptor
 
 printf '\n==> Installing frontend dependencies\n'
 cd frontend
@@ -77,6 +120,7 @@ git diff --check
 printf '\n==> All validation checks passed. Starting development servers\n'
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
+  rm -f "$VELOCIRAPTOR_PID"
 }
 trap cleanup EXIT INT TERM
 
@@ -84,5 +128,5 @@ PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --rel
 cd frontend
 VITE_HTTPS_KEY="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.key" VITE_HTTPS_CERT="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.crt" npm run dev -- --host 0.0.0.0 &
 cd "$ROOT_DIR"
-printf 'Backend:  http://localhost:8000\nFrontend: https://localhost:5173\nWazuh:    optional external integration\nPress Ctrl+C to stop both servers.\n'
+printf 'Backend:       http://localhost:8000\nFrontend:      https://localhost:5173\nVelociraptor:  project-local process (see dashboard status)\nWazuh:         optional external integration\nPress Ctrl+C to stop all local processes.\n'
 wait
