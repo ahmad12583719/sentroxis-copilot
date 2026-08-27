@@ -68,6 +68,8 @@ The steps can also be run separately. Script 3 will reuse the email from the Ste
 
 Use `--help` on any script to inspect its non-interactive arguments. For example, `scripts/01_installation_files.py --dry-run` displays the detected platform and official asset without downloading it.
 
+If Step 1 is taking longer than expected, do not use `Ctrl+C` unless you intend to stop it. When interrupted, the script now exits cleanly, keeps an owner-only partial file such as `.velociraptor.part`, and the next run automatically resumes the download after the release server confirms HTTP range support. The final binary is still accepted only after its complete SHA-256 digest matches the pinned official value. Use `--force` only when you want to discard the partial file and restart the download.
+
 ## Security and deployment note
 
 Generated server and client YAML files contain deployment-sensitive material. On POSIX hosts, the scripts apply owner-only permissions. Keep the files and their backups under appropriate access control. The official quickstart describes self-signed TLS with Basic authentication as suitable for short-term, private-network usage rather than broad public exposure. Use official deployment guidance for production TLS, identity, network controls, backups, and service management. [1] [2]

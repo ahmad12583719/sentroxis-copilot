@@ -119,4 +119,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nSetup cancelled by user. Re-run this command to resume any interrupted download.")
+        raise SystemExit(130)

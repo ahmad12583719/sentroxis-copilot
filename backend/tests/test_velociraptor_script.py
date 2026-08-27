@@ -101,3 +101,63 @@ def test_signup_discovers_existing_account_for_safe_reuse(tmp_path):
 
     assert account is not None
     assert account[1:3] == ("Test Analyst", "test@example.com")
+
+
+class _Response:
+    def __init__(self, chunks, status=206, content_length=None):
+        self.chunks = iter(chunks)
+        self.status = status
+        self.headers = {"Content-Length": str(content_length if content_length is not None else sum(len(chunk) for chunk in chunks))}
+
+    def getcode(self):
+        return self.status
+
+    def read(self, _size):
+        return next(self.chunks, b"")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+
+def test_installation_resumes_partial_download_with_range_request(tmp_path, monkeypatch):
+    import hashlib
+
+    target = tmp_path / "velociraptor"
+    partial = tmp_path / ".velociraptor.part"
+    partial.write_bytes(b"abc")
+    asset = installation_script.Asset("fixture", hashlib.sha256(b"abcdef").hexdigest(), "velociraptor")
+    captured_headers = {}
+
+    def fake_urlopen(request, timeout):
+        captured_headers.update(dict(request.header_items()))
+        assert timeout == 60
+        return _Response([b"def"], status=206, content_length=3)
+
+    monkeypatch.setattr(installation_script, "urlopen", fake_urlopen)
+
+    installation_script.download(asset, target, force=False)
+
+    assert target.read_bytes() == b"abcdef"
+    assert not partial.exists()
+    assert captured_headers["Range"] == "bytes=3-"
+
+
+def test_installation_keeps_partial_file_after_keyboard_interrupt(tmp_path, monkeypatch):
+    import hashlib
+
+    target = tmp_path / "velociraptor"
+    asset = installation_script.Asset("fixture", hashlib.sha256(b"unused").hexdigest(), "velociraptor")
+
+    class InterruptedResponse(_Response):
+        def read(self, _size):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(installation_script, "urlopen", lambda *_args, **_kwargs: InterruptedResponse([], status=200, content_length=0))
+
+    with pytest.raises(installation_script.DownloadCancelled):
+        installation_script.download(asset, target, force=False)
+
+    assert (tmp_path / ".velociraptor.part").exists()

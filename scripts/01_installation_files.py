@@ -3,7 +3,8 @@
 
 Only the pinned official Velocidex release assets in ASSETS are accepted. The
 script does not install operating-system packages, create services, alter firewall
-rules, or start a server.
+rules, or start a server. Interrupted downloads are retained as an owner-only
+partial file and safely resumed only when the server confirms HTTP range support.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ import json
 import os
 import platform as host_platform
 import stat
-import tempfile
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,12 @@ from urllib.request import Request, urlopen
 RELEASE = "0.77.2"
 DOWNLOAD_ROOT = f"https://github.com/Velocidex/velociraptor/releases/download/v{RELEASE}"
 USER_AGENT = "Sentroxis-Copilot/0.1"
+CHUNK_SIZE = 1024 * 1024
+PROGRESS_INTERVAL = 5 * 1024 * 1024
+
+
+class DownloadCancelled(RuntimeError):
+    """Raised after preserving an interrupted partial download for a later resume."""
 
 
 @dataclass(frozen=True)
@@ -44,7 +51,7 @@ ASSETS: dict[str, Asset] = {
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
-        for block in iter(lambda: source.read(1024 * 1024), b""):
+        for block in iter(lambda: source.read(CHUNK_SIZE), b""):
             digest.update(block)
     return digest.hexdigest()
 
@@ -73,32 +80,73 @@ def secure_file(path: Path, executable: bool = False) -> None:
         path.chmod(mode)
 
 
+def progress_label(downloaded: int, total: int | None) -> str:
+    downloaded_mib = downloaded / (1024 * 1024)
+    if total:
+        return f"{downloaded_mib:.1f} MiB / {total / (1024 * 1024):.1f} MiB"
+    return f"{downloaded_mib:.1f} MiB"
+
+
 def download(asset: Asset, target: Path, force: bool) -> None:
     if target.is_file() and sha256_file(target).lower() == asset.sha256 and not force:
         print(f"Verified binary already exists: {target}")
         return
-    if target.exists():
+
+    partial_path = target.with_name(f".{target.name}.part")
+    if force:
+        target.unlink(missing_ok=True)
+        partial_path.unlink(missing_ok=True)
+    elif target.exists():
+        # A complete but unverified file must never be treated as a partial resume.
         target.unlink()
-    temporary_path: Path | None = None
+
+    downloaded = partial_path.stat().st_size if partial_path.is_file() else 0
+    digest = hashlib.sha256()
+    if downloaded:
+        print(f"Resuming interrupted download from {progress_label(downloaded, None)}: {partial_path}")
+        with partial_path.open("rb") as existing:
+            for block in iter(lambda: existing.read(CHUNK_SIZE), b""):
+                digest.update(block)
+
+    request = Request(f"{DOWNLOAD_ROOT}/{asset.filename}", headers={"User-Agent": USER_AGENT})
+    if downloaded:
+        request.add_header("Range", f"bytes={downloaded}-")
+
     try:
-        with tempfile.NamedTemporaryFile(prefix=f".{target.name}.", suffix=".part", dir=target.parent, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            digest = hashlib.sha256()
-            request = Request(f"{DOWNLOAD_ROOT}/{asset.filename}", headers={"User-Agent": USER_AGENT})
-            with urlopen(request, timeout=60) as response:
+        with urlopen(request, timeout=60) as response:
+            status = response.getcode()
+            if downloaded and status != 206:
+                # Never append a complete response to a partial file; restart safely.
+                print("Remote server did not confirm resume support; restarting the download safely.")
+                partial_path.unlink(missing_ok=True)
+                return download(asset, target, force=False)
+            content_length = response.headers.get("Content-Length")
+            total = downloaded + int(content_length) if content_length and content_length.isdigit() else None
+            mode = "ab" if downloaded else "wb"
+            next_update = downloaded + PROGRESS_INTERVAL
+            print(f"Downloading {asset.filename} ({progress_label(downloaded, total)}). Press Ctrl+C to cancel safely.")
+            with partial_path.open(mode) as temporary:
+                secure_file(partial_path)
                 while True:
-                    block = response.read(1024 * 1024)
+                    block = response.read(CHUNK_SIZE)
                     if not block:
                         break
                     digest.update(block)
                     temporary.write(block)
-        if digest.hexdigest().lower() != asset.sha256:
-            raise RuntimeError("SHA-256 verification failed; downloaded binary was deleted")
-        os.replace(temporary_path, target)
-        print(f"Downloaded and SHA-256 verified: {target}")
-    finally:
-        if temporary_path and temporary_path.exists():
-            temporary_path.unlink()
+                    downloaded += len(block)
+                    if downloaded >= next_update:
+                        print(f"Download progress: {progress_label(downloaded, total)}")
+                        next_update = downloaded + PROGRESS_INTERVAL
+    except KeyboardInterrupt as error:
+        print(f"\nDownload cancelled. Partial file retained for resume: {partial_path} ({progress_label(downloaded, None)} saved)")
+        raise DownloadCancelled("Download cancelled by user") from error
+
+    if digest.hexdigest().lower() != asset.sha256:
+        partial_path.unlink(missing_ok=True)
+        raise RuntimeError("SHA-256 verification failed; partial download was deleted")
+    os.replace(partial_path, target)
+    secure_file(target, executable=True)
+    print(f"Downloaded and SHA-256 verified: {target}")
 
 
 def main() -> int:
@@ -106,7 +154,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Step 1: prepare a verified local Velociraptor binary.")
     parser.add_argument("--install-dir", type=Path, default=root / "backend" / "runtime" / "velociraptor")
     parser.add_argument("--platform", choices=["auto", *ASSETS], default="auto")
-    parser.add_argument("--force", action="store_true", help="Download again even if an existing binary verifies.")
+    parser.add_argument("--force", action="store_true", help="Discard any unverified partial file and download again.")
     parser.add_argument("--dry-run", action="store_true", help="Show the selected official asset without downloading it.")
     args = parser.parse_args()
 
@@ -129,7 +177,8 @@ def main() -> int:
     install_dir.mkdir(parents=True, exist_ok=True)
     try:
         download(asset, target, args.force)
-        secure_file(target, executable=True)
+    except DownloadCancelled:
+        return 130
     except (OSError, RuntimeError) as error:
         print(f"ERROR: {error}")
         return 1
@@ -156,4 +205,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        print("\nSetup cancelled. No verified installation state was created.")
+        raise SystemExit(130)
