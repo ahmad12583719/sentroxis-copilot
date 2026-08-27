@@ -136,3 +136,20 @@ def test_installation_keeps_partial_file_after_keyboard_interrupt(tmp_path, monk
         installation_script.download(asset, target, force=False)
 
     assert (tmp_path / ".velociraptor.part").exists()
+
+
+def test_master_runner_reads_password_handoff_without_consuming_terminal_stdin(monkeypatch):
+    import os
+
+    read_fd, write_fd = os.pipe()
+    os.write(write_fd, b"strong-test-password\n")
+    os.close(write_fd)
+    monkeypatch.setenv("SENTROXIS_PASSWORD_FD", str(read_fd))
+
+    try:
+        assert runner_script.read_handoff_password() == "strong-test-password"
+    finally:
+        try:
+            os.close(read_fd)
+        except OSError:
+            pass

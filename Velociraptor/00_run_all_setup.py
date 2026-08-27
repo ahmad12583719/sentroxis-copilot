@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -39,6 +40,17 @@ def run(command: list[str], stdin_text: str | None = None) -> int:
     return subprocess.run(command, cwd=ROOT, input=stdin_text, text=True, check=False).returncode
 
 
+def read_handoff_password() -> str:
+    descriptor = os.environ.get("SENTROXIS_PASSWORD_FD")
+    if descriptor:
+        try:
+            with os.fdopen(int(descriptor), "r", encoding="utf-8") as handoff:
+                return handoff.readline().rstrip("\n")
+        except (OSError, ValueError) as error:
+            raise RuntimeError("The Task 01 password handoff could not be read") from error
+    return getpass.getpass("Password for the Task 01 Sentroxis account: ")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run Velociraptor installation files and configuration using the Task 01 web identity.")
     parser.add_argument("--platform", default="auto", choices=["auto", "linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64", "windows-amd64"])
@@ -48,7 +60,7 @@ def main() -> int:
     args = parser.parse_args()
 
     email = identity_email(args.identity_path.expanduser().resolve())
-    password = sys.stdin.readline().rstrip("\n") if args.password_stdin else getpass.getpass(f"Password for {email}: ")
+    password = read_handoff_password() if args.password_stdin else getpass.getpass(f"Password for {email}: ")
     if not password:
         print("ERROR: A password is required to verify the Task 01 Sentroxis account.")
         return 2
@@ -99,6 +111,9 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
+    except EOFError:
+        print("\nVelociraptor setup input closed. No configuration was written.")
+        raise SystemExit(2)
     except KeyboardInterrupt:
         print("\nVelociraptor setup cancelled by user.")
         raise SystemExit(130)

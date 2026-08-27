@@ -125,8 +125,21 @@ def run_velociraptor(password: str) -> int:
     runner = VELO_DIR / "00_run_all_setup.py"
     command = [sys.executable, str(runner), "--identity-path", str(IDENTITY_PATH), "--password-stdin"]
     print("\nStarting the Velociraptor installation workflow with the same Sentroxis web-login identity.")
-    completed = subprocess.run(command, cwd=ROOT, input=password + "\n", text=True, check=False)
-    return completed.returncode
+    if os.name != "posix":
+        # Windows has no portable pass_fds equivalent; stdin is used only for the password there.
+        return subprocess.run(command, cwd=ROOT, input=password + "\n", text=True, check=False).returncode
+    password_read, password_write = os.pipe()
+    try:
+        os.write(password_write, (password + "\n").encode("utf-8"))
+    finally:
+        os.close(password_write)
+    environment = os.environ.copy()
+    environment["SENTROXIS_PASSWORD_FD"] = str(password_read)
+    try:
+        # Leave stdin inherited so the child can ask for all remaining config values interactively.
+        return subprocess.run(command, cwd=ROOT, text=True, check=False, env=environment, pass_fds=(password_read,)).returncode
+    finally:
+        os.close(password_read)
 
 
 def installation_menu(password: str) -> int:
@@ -135,7 +148,11 @@ def installation_menu(password: str) -> int:
         print("1. Install Wazuh")
         print("2. Install Velociraptor")
         print("3. Exit installer")
-        choice = input("Select an option [1-3]: ").strip()
+        try:
+            choice = input("Select an option [1-3]: ").strip()
+        except EOFError:
+            print("\nInstaller input closed; returning to the shell.")
+            return 0
         if choice == "1":
             result = run_wazuh()
             print(f"Wazuh installation finished with exit code {result}.")
