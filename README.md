@@ -6,23 +6,25 @@ Sentroxis Copilot is an incident-response workspace that brings Wazuh security t
 
 ## Current user workflow
 
-The intended single-machine workflow is deliberately staged. A user clones the repository, installs Wazuh separately, completes the separate Velociraptor setup owned by the Velociraptor contributor, and then starts Sentroxis.
+The intended single-machine workflow is deliberately staged. A user clones the repository, runs the unified installer to create the Sentroxis account and choose Wazuh or Velociraptor, completes any required infrastructure setup, and then starts Sentroxis.
 
 ```bash
 git clone https://github.com/ahmad12583719/sentroxis-copilot.git
 cd sentroxis-copilot
 
-# Stage 1: install and configure Wazuh.
-sudo ./wazuh_installation.sh
+# Create the Sentroxis account and open the installation menu.
+chmod 700 Velociraptor/*.py
+./Velociraptor/install.py
 
-# Stage 2: the Velociraptor contributor’s setup process goes here.
-# Do not run or modify that process as part of the Wazuh installation.
+# Select Install Wazuh from the menu when prompted.
+# The initial Sentroxis password becomes the Wazuh admin password.
+# Internal Wazuh service passwords are generated automatically.
 
-# Stage 3: start Sentroxis after the required infrastructure is ready.
+# After the selected infrastructure setup is complete:
 ./startup.sh
 ```
 
-`wazuh_installation.sh` is the only Wazuh installation entrypoint. `startup.sh` assumes Wazuh is already installed; it starts the project-managed Wazuh services, validates the Sentroxis application, and starts the backend and frontend. The legacy `start.sh` file remains a compatibility wrapper that delegates to `startup.sh`.
+`wazuh_installation.sh` remains the direct Wazuh installation entrypoint for operators who intentionally want to run Wazuh separately. `Velociraptor/install.py` is the unified entrypoint that creates the initial Sentroxis account and securely hands the password to the Wazuh installer when Wazuh is selected. `startup.sh` assumes Wazuh is already installed; it starts the project-managed Wazuh services, validates the Sentroxis application, and starts the backend and frontend. The legacy `start.sh` file remains a compatibility wrapper that delegates to `startup.sh`.
 
 ## Wazuh installation
 

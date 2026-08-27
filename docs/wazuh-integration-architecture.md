@@ -8,7 +8,7 @@
 
 This document explains how the Sentroxis Copilot project connects a project-local Wazuh single-node deployment to the Sentroxis React/FastAPI application. It is intended for operators who install and run the project, developers who modify the Wazuh integration, and contributors who need to avoid crossing into the separate Velociraptor workstream.
 
-The integration has two independent presentation paths. The **native Wazuh Dashboard** is displayed directly in a browser iframe through a local Nginx HTTPS proxy. It is not rendered or reimplemented by FastAPI. The **Sentroxis telemetry widgets** use a protected FastAPI endpoint that authenticates to the Wazuh Manager API for live agent inventory and to the Wazuh Indexer for recent alert search. The browser receives normalized data from FastAPI rather than Wazuh credentials.
+The integration has two independent presentation paths. The **native Wazuh Dashboard** is displayed directly in a browser iframe through a local Nginx HTTPS proxy. It is not rendered or reimplemented by FastAPI. The **Sentroxis telemetry widgets** use a protected FastAPI endpoint that authenticates to the Wazuh Manager API for live agent inventory and to the Wazuh Indexer for recent alert search. The browser receives normalized data from FastAPI rather than Wazuh credentials. The unified `Velociraptor/install.py` entrypoint creates the Sentroxis account first; the initial password becomes the Wazuh Indexer/Dashboard `admin` password, while internal Wazuh service passwords are generated automatically.
 
 > **Important distinction:** The embedded dashboard is a browser-to-Nginx-to-dashboard path. The custom widgets are a browser-to-Vite-to-FastAPI-to-Wazuh path. They share the same Wazuh deployment but are not the same request pipeline.
 
@@ -55,7 +55,7 @@ The user runs:
 sudo ./wazuh_installation.sh
 ```
 
-`wazuh_installation.sh` is the only Wazuh installation entry point. It is deliberately separate from `startup.sh`. The installation script provisions infrastructure and credentials; `startup.sh` starts infrastructure that is already installed and then starts the Sentroxis application.
+`wazuh_installation.sh` is the direct Wazuh installation entry point and is also invoked by the unified `Velociraptor/install.py` menu. In unified mode, the initial Sentroxis password is handed to it through a protected temporary environment file; internal Wazuh service passwords are generated automatically. The installation script remains deliberately separate from `startup.sh`: installation provisions infrastructure and credentials, while startup starts infrastructure that is already installed and then starts the Sentroxis application.
 
 ### 3.2 Installer stages
 
@@ -65,7 +65,7 @@ sudo ./wazuh_installation.sh
 | Docker preparation | Installs Docker/Compose and `python3-bcrypt` if missing. | Docker service available. |
 | Project-local deployment | Clones or updates the official Wazuh Docker repository into `<clone>/.wazuh`. | `.wazuh/single-node/` becomes the deployment root. |
 | Version pinning | Uses Wazuh tag `v4.7.5` unless overridden with a compatible `WAZUH_VERSION`. | Consistent Manager, Indexer, Dashboard versions. |
-| Credential capture | Prompts separately for Indexer admin, Dashboard, and Manager API passwords. | Passwords remain in shell variables during the run. |
+| Credential capture | Direct mode can prompt for three values; unified mode supplies the initial Sentroxis password as the Indexer/Dashboard `admin` password and generates internal service values. | Passwords remain protected and are not placed in command-line arguments. |
 | Indexer credential configuration | Generates bcrypt hashes for `admin` and `kibanaserver` and writes them to `internal_users.yml`. | No plaintext Indexer password in the users file. |
 | Manager/Dashboard configuration | Writes `INDEXER_PASSWORD`, `API_USERNAME=wazuh-wui`, and `API_PASSWORD` into Compose/configuration files. | Manager Filebeat and Dashboard use the same current credentials. |
 | TLS | Generates or preserves the official Wazuh certificates. | Certificate material under `.wazuh/single-node/config/wazuh_indexer_ssl_certs/`. |
@@ -76,12 +76,12 @@ sudo ./wazuh_installation.sh
 
 ### 3.3 Credential roles
 
-The three installer prompts are intentionally different. The **Indexer admin password** authenticates the OpenSearch-compatible Indexer account `admin`. The **Dashboard password** is used for the Dashboard login and is also applied to the Indexer’s internal `kibanaserver` account. The **Wazuh Server API password** is used by the Wazuh Docker API service account `wazuh-wui`.
+In unified mode, the initial Sentroxis password is assigned to the visible Wazuh/Indexer `admin` account. The installer generates separate random values for the internal `kibanaserver` and Wazuh API `wazuh-wui` accounts. The **Indexer admin password** authenticates the OpenSearch-compatible Indexer account `admin` and is the password the user enters when signing in to the native Dashboard as `admin`. The generated Dashboard service password is applied to `kibanaserver`, and the generated API password is used by `wazuh-wui`.
 
 | Credential | Runtime variable | Consumer |
 |---|---|---|
 | Indexer admin | `WAZUH_INDEXER_PASSWORD` | Sentroxis Indexer client; Manager Filebeat; Dashboard Indexer connection. |
-| Dashboard/admin | `WAZUH_DASHBOARD_PASSWORD` | Wazuh Dashboard login; `kibanaserver` hash/config path. |
+| Dashboard service | `WAZUH_DASHBOARD_PASSWORD` | Internal `kibanaserver` hash/config path; not normally entered by the user. |
 | Manager API | `WAZUH_API_PASSWORD` | Wazuh Manager API account `wazuh-wui`; Dashboard Wazuh API connection. |
 
 The generated runtime file contains endpoints, usernames, and passwords for the local backend process:
@@ -90,9 +90,10 @@ The generated runtime file contains endpoints, usernames, and passwords for the 
 WAZUH_MANAGER_API_URL=https://127.0.0.1:55000
 WAZUH_INDEXER_URL=https://127.0.0.1:9200
 WAZUH_API_USER=wazuh-wui
-WAZUH_API_PASSWORD=<operator value>
+WAZUH_API_PASSWORD=<generated value>
+WAZUH_DASHBOARD_PASSWORD=<generated value>
 WAZUH_INDEXER_USER=admin
-WAZUH_INDEXER_PASSWORD=<operator value>
+WAZUH_INDEXER_PASSWORD=<Sentroxis admin password>
 ```
 
 This file must never be committed, pasted into an issue, or displayed in a log. The installer adds it to the ignored `runtime/` paths.

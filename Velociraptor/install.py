@@ -12,8 +12,11 @@ import argparse
 import getpass
 import json
 import os
+import secrets
 import shutil
+import shlex
 import sqlite3
+import string
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +28,9 @@ VELO_DIR = ROOT / "Velociraptor"
 BACKEND_DIR = ROOT / "backend"
 DB_PATH = BACKEND_DIR / "sentroxis.db"
 IDENTITY_PATH = BACKEND_DIR / "runtime" / "velociraptor" / "setup-identity.json"
+WAZUH_HANDOFF_PATH = ROOT / "runtime" / ".wazuh-install.env"
+WAZUH_PASSWORD_LENGTH = 32
+WAZUH_PASSWORD_SPECIALS = "@#%+=:,._/-!"
 
 
 def ask(prompt: str, default: str | None = None) -> str:
@@ -73,6 +79,48 @@ def reset_previous_sentroxis_state() -> None:
     print("Previous Sentroxis account state forgotten. Wazuh files and data were not changed.")
 
 
+def validate_wazuh_compatible_password(password: str) -> None:
+    """Ensure the shared password satisfies the Wazuh installer policy."""
+    if len(password) < 20:
+        raise ValueError("Password must contain at least 20 characters for Wazuh")
+    if any(character.isspace() or not character.isprintable() for character in password):
+        raise ValueError("Password must contain printable non-whitespace characters only")
+    if not (
+        any(character.isupper() for character in password)
+        and any(character.islower() for character in password)
+        and any(character.isdigit() for character in password)
+        and any(not character.isalnum() for character in password)
+    ):
+        raise ValueError("Password must include uppercase, lowercase, a number, and a special character for Wazuh")
+
+
+def generate_wazuh_password() -> str:
+    """Generate a strong shell-safe Wazuh internal password."""
+    alphabet = string.ascii_letters + string.digits + WAZUH_PASSWORD_SPECIALS
+    characters = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+        secrets.choice(WAZUH_PASSWORD_SPECIALS),
+    ]
+    characters.extend(secrets.choice(alphabet) for _ in range(WAZUH_PASSWORD_LENGTH - len(characters)))
+    secrets.SystemRandom().shuffle(characters)
+    return "".join(characters)
+
+
+def write_wazuh_handoff(shared_password: str) -> None:
+    """Write a temporary protected handoff for sudo without putting secrets in argv."""
+    WAZUH_HANDOFF_PATH.parent.mkdir(parents=True, exist_ok=True)
+    values = {
+        "WAZUH_INDEXER_PASSWORD": shared_password,
+        "WAZUH_DASHBOARD_PASSWORD": generate_wazuh_password(),
+        "WAZUH_API_PASSWORD": generate_wazuh_password(),
+    }
+    content = "".join(f"{key}={shlex.quote(value)}\n" for key, value in values.items())
+    WAZUH_HANDOFF_PATH.write_text(content, encoding="utf-8")
+    WAZUH_HANDOFF_PATH.chmod(0o600)
+
+
 def create_fresh_sentroxis_account() -> tuple[str, str]:
     reset_previous_sentroxis_state()
     ensure_auth_schema()
@@ -82,12 +130,13 @@ def create_fresh_sentroxis_account() -> tuple[str, str]:
     name = ask("Sentroxis display name")
     email = ask("Sentroxis login email").lower()
     while True:
-        password = getpass.getpass("Sentroxis web-login password (minimum 12 characters): ")
-        confirm = getpass.getpass("Confirm Sentroxis web-login password: ")
+        password = getpass.getpass("Sentroxis/Wazuh admin password (minimum 20 characters): ")
+        confirm = getpass.getpass("Confirm Sentroxis/Wazuh admin password: ")
         if password != confirm:
             print("ERROR: Passwords do not match. Try again.")
             continue
         try:
+            validate_wazuh_compatible_password(password)
             principal = register_first_user(name, email, password)
         except (ValueError, PermissionError) as error:
             print(f"ERROR: {error}")
@@ -112,12 +161,25 @@ def run_wazuh() -> int:
         print(f"ERROR: Wazuh installer is not executable: {script}")
         print(f"Run: chmod 700 {script}")
         return 1
-    print("\nStarting the existing Wazuh installation workflow. Wazuh owns its own files and prompts.")
+    print("\nStarting Wazuh with the shared Sentroxis/Wazuh admin password.")
+    print("Wazuh Dashboard login: username admin; use the Sentroxis password.")
+    print("Internal kibanaserver and wazuh-wui passwords will be generated and stored locally.")
     try:
-        completed = subprocess.run(["sudo", str(script)], cwd=ROOT, check=False)
+        write_wazuh_handoff(password)
+        handoff = shlex.quote(str(WAZUH_HANDOFF_PATH))
+        installer = shlex.quote(str(script))
+        command = [
+            "sudo",
+            "bash",
+            "-c",
+            f"set -a; source {handoff}; set +a; exec {installer}",
+        ]
+        completed = subprocess.run(command, cwd=ROOT, check=False)
     except FileNotFoundError:
         print("ERROR: sudo is not available; run the Wazuh installer manually with the required privileges.")
         return 1
+    finally:
+        WAZUH_HANDOFF_PATH.unlink(missing_ok=True)
     return completed.returncode
 
 

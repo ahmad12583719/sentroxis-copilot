@@ -25,4 +25,5 @@ backend/runtime/
 
 # Project-local runtime credentials and development TLS
 runtime/wazuh-api.env
+runtime/.wazuh-install.env
 runtime/sentroxis-dev-tls/

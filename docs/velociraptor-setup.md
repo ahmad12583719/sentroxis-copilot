@@ -17,7 +17,7 @@ chmod 700 Velociraptor/*.py
 
 The installer asks for a display name, email, password, and password confirmation. It intentionally starts fresh: if `backend/sentroxis.db` already exists, the installer asks for confirmation before deleting only the local Sentroxis account/session database. It does not delete Wazuh files, Wazuh data, Velociraptor files, or other project data.
 
-The password is validated against the web application’s 12–128 character policy and is held only in process memory. The installer writes an identity handoff containing the account ID and email but never writes the plaintext password.
+The password must be at least 20 characters and contain uppercase, lowercase, a number, and a special character because it is also used as the Wazuh Indexer/Dashboard `admin` password. It is held in process memory for the workflow. The installer writes an identity handoff containing the account ID and email but never writes the plaintext password.
 
 ### Task 02: installation menu
 
@@ -30,7 +30,7 @@ What would you like to install?
 3. Exit installer
 ```
 
-Selecting **Install Wazuh** runs the existing `sudo ./wazuh_installation.sh` workflow and returns to this menu after it finishes. Selecting **Install Velociraptor** runs `Velociraptor/00_run_all_setup.py`, which calls `01_installation_files.py` and `03_setup_velociraptor.py` using the Task 01 identity and password. Selecting **Exit installer** leaves the account available for normal web login.
+Selecting **Install Wazuh** securely hands the Task 01 password to `wazuh_installation.sh` as the Indexer/Dashboard `admin` password. The unified installer generates separate random passwords for the internal `kibanaserver` and `wazuh-wui` accounts, applies them to the Wazuh configuration, and stores the resulting protected runtime credentials. It then returns to this menu. Selecting **Install Velociraptor** runs `Velociraptor/00_run_all_setup.py`, which calls `01_installation_files.py` and `03_setup_velociraptor.py` using the Task 01 identity and password. Selecting **Exit installer** leaves the account available for normal web login.
 
 ## Velociraptor scripts
 
@@ -41,7 +41,7 @@ Selecting **Install Wazuh** runs the existing `sudo ./wazuh_installation.sh` wor
 | `Velociraptor/01_installation_files.py` | Downloads the allowlisted official binary and verifies its SHA-256 digest. |
 | `Velociraptor/03_setup_velociraptor.py` | Generates self-signed server, endpoint-client, and API-client configurations. |
 
-The retired `02_signup_credentials.py` script has been removed. Velociraptor configuration reuses the account created in Task 01. The password is passed to the configuration runner through standard input only.
+The retired `02_signup_credentials.py` script has been removed. Velociraptor configuration reuses the account created in Task 01. The password is passed to the configuration runner through standard input only. Wazuh receives the same password only as a protected environment-file handoff; the generated Wazuh service passwords are not passed to Velociraptor.
 
 ## Generated files
 
