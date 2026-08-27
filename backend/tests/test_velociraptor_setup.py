@@ -135,6 +135,8 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
     assert Path(result["api_config_path"]).is_file()
     assert captured_merge["Frontend"] == {"hostname": "192.168.1.20", "bind_address": "0.0.0.0", "bind_port": 8010}
     assert captured_merge["GUI"]["bind_port"] == 9443
+    assert captured_merge["GUI"]["base_path"] == "/velociraptor-console"
+    assert captured_merge["GUI"]["public_url"] == "https://127.0.0.1:5173/velociraptor-console/app/index.html"
     assert captured_merge["Client"]["server_urls"] == ["https://192.168.1.20:8010/"]
     assert captured_merge["Client"]["writeback_windows"] == "HKLM\\SOFTWARE\\Velocidex\\Velociraptor"
     assert captured_merge["GUI"]["initial_users"][0]["name"] == "analyst@example.com"
@@ -213,6 +215,7 @@ def test_server_details_exposes_local_gui_status_and_fixed_command(tmp_path):
     assert details["frontend_port"] == 8010
     assert details["gui_port"] == 9443
     assert details["gui_url"] == "https://127.0.0.1:9443/app/index.html"
+    assert details["gui_proxy_url"] == "/velociraptor-console/app/index.html"
     assert details["command_preview"].endswith("--config " + str(config_path) + " frontend -v")
 
 

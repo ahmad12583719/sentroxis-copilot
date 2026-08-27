@@ -281,7 +281,8 @@ class VelociraptorSetupService:
             "GUI": {
                 "bind_address": "127.0.0.1",
                 "bind_port": gui_port,
-                "public_url": f"https://{frontend_hostname}:{gui_port}/app/index.html",
+                "base_path": "/velociraptor-console",
+                "public_url": "https://127.0.0.1:5173/velociraptor-console/app/index.html",
                 "authenticator": {"type": "Basic"},
                 "initial_users": [{
                     "name": admin_username,
@@ -543,6 +544,7 @@ class VelociraptorSetupService:
             "frontend_port": DEFAULT_FRONTEND_PORT,
             "gui_port": gui_port,
             "gui_url": gui_url,
+            "gui_proxy_url": "/velociraptor-console/app/index.html" if gui_port else None,
             "log_path": str(log_path),
             "api_config_path": str(api_config_path) if api_config_path.is_file() else None,
             "api_config_ready": api_config_path.is_file(),

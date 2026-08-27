@@ -207,7 +207,8 @@ def main() -> int:
         "GUI": {
             "bind_address": "127.0.0.1",
             "bind_port": gui_port,
-            "public_url": f"https://{frontend_host}:{gui_port}/app/index.html",
+            "base_path": "/velociraptor-console",
+            "public_url": "https://127.0.0.1:5173/velociraptor-console/app/index.html",
             "authenticator": {"type": "Basic"},
             "initial_users": [{"name": identity["email"], "password_hash": password_hash, "password_salt": salt.hex()}],
         },

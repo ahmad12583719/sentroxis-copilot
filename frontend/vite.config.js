@@ -15,7 +15,17 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     https,
-    proxy: { '/api': 'http://127.0.0.1:8000' },
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+      // Keep the browser-facing host and HTTPS origin intact. Velociraptor is
+      // configured with this same base path, so its CSRF cookie is first-party.
+      '/velociraptor-console': {
+        target: 'https://127.0.0.1:8889',
+        secure: false,
+        ws: true,
+        changeOrigin: false,
+      },
+    },
   },
   test: {
     environment: 'jsdom',

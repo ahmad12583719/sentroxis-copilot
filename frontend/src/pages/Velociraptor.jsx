@@ -1,13 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Activity, CheckCircle2, ClipboardCheck, Download, ExternalLink, FileKey2, FolderSearch, Lock, RefreshCw, Server, ShieldCheck, TerminalSquare } from 'lucide-react'
+import { AlertTriangle, ExternalLink, Maximize2, RefreshCw, Server } from 'lucide-react'
 import { authRequest } from '../auth/AuthProvider'
-
-const endpoints = [
-  { name: 'ws-fin-07', os: 'Windows 11 · Finance', lastSeen: '32 sec ago', health: 'Healthy', trust: 'Verified' },
-  { name: 'srv-app-02', os: 'Ubuntu 24.04 · App tier', lastSeen: '48 sec ago', health: 'Healthy', trust: 'Verified' },
-  { name: 'dc-east-01', os: 'Windows Server · Identity', lastSeen: '1 min ago', health: 'Healthy', trust: 'Verified' },
-  { name: 'ws-ops-12', os: 'Windows 11 · Operations', lastSeen: '2 min ago', health: 'Review', trust: 'Verified' },
-]
 
 export default function Velociraptor() {
   const [status, setStatus] = useState(null)
@@ -24,38 +17,23 @@ export default function Velociraptor() {
   }
 
   useEffect(() => {
-    // This external runtime status must be fetched once when the dashboard opens.
+    // The console reads live local-runtime status after the page opens.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshStatus()
     const timer = window.setInterval(refreshStatus, 5000)
     return () => window.clearInterval(timer)
   }, [])
 
-  const guiAvailable = Boolean(status?.running && status?.gui_url)
-  return <main className="page-shell subpage-shell">
-    <section className="page-heading compact-heading"><div><p className="eyebrow"><FolderSearch size={13} /> Endpoint forensics <span className="slash">/</span> approved collections</p><h1>Velociraptor <em>evidence.</em></h1><p className="lede">Collect bounded, read-only context with provenance attached to every artifact.</p></div><div className="heading-actions"><span className={`connection-badge ${status?.running ? '' : 'muted'}`}><i /> {status?.running ? 'Server running' : 'Server offline'}</span><button className="button secondary" onClick={refreshStatus}><RefreshCw size={14} /> Refresh status</button></div></section>
+  const consoleUrl = status?.gui_proxy_url || '/velociraptor-console/app/index.html'
+  const consoleReady = Boolean(status?.running && status?.gui_proxy_url)
 
-    <section className="velociraptor-server-grid">
-      <article className="panel velociraptor-server-control">
-        <div className="panel-heading"><div><p className="eyebrow"><Activity size={13} /> Local runtime</p><h2>Server status</h2></div><span className={`server-status-pill ${status?.running ? 'online' : 'offline'}`}><i /> {status?.running ? 'Running' : 'Stopped'}</span></div>
-        <p>{status?.message || 'Loading the local Velociraptor runtime status…'}</p>
-        <dl className="velociraptor-status-list"><div><dt>Frontend port</dt><dd>{status?.frontend_port || 8010} <small>fixed</small></dd></div><div><dt>GUI port</dt><dd>{status?.gui_port || 'Configure first'}</dd></div><div><dt>Process</dt><dd>{status?.running ? `PID ${status.pid}` : 'Not running'}</dd></div><div><dt>Configuration</dt><dd>{status?.configured ? 'Ready' : 'Required'}</dd></div></dl>
-        {status?.command_preview && <div className="velociraptor-command"><TerminalSquare size={15} /><code>{status.command_preview}</code></div>}
-        {status?.config_path && <p className="runtime-path"><strong>Config:</strong> {status.config_path}</p>}
-        {status?.log_path && <p className="runtime-path"><strong>Log:</strong> {status.log_path}</p>}
-        {status?.api_config_ready ? <a className="button secondary velociraptor-api-download" href="/api/velociraptor/api-config/download"><Download size={14} /> Download API configuration</a> : <p className="runtime-path"><strong>API configuration:</strong> generated with the next client configuration run.</p>}
-        <p className="velociraptor-managed-note">The project-local server is managed by <code>./startup.sh</code>. Pressing <code>Ctrl+C</code> there stops both Sentroxis and the Velociraptor process.</p>
-        {error && <p className="velociraptor-status-error" role="alert">{error}</p>}
-      </article>
-
-      <article className="panel velociraptor-gui-panel">
-        <div className="panel-heading"><div><p className="eyebrow"><Server size={13} /> Embedded server GUI</p><h2>Velociraptor console</h2></div>{status?.gui_url && <a className="text-button" href={status.gui_url} target="_blank" rel="noreferrer">Open separately <ExternalLink size={14} /></a>}</div>
-        {guiAvailable ? <div className="velociraptor-frame-wrap"><iframe title="Velociraptor server GUI" className="velociraptor-server-frame" src={status.gui_url} /></div> : <div className="velociraptor-gui-empty"><Server size={30} /><strong>GUI is not available yet</strong><p>{status?.configured ? 'Run ./startup.sh to load the local GUI in this panel.' : 'Generate server.config.yaml from Project Setup first.'}</p>{status?.gui_url && <a className="text-button" href={status.gui_url} target="_blank" rel="noreferrer">Open local GUI <ExternalLink size={14} /></a>}</div>}
-      </article>
+  return <main className="velociraptor-console-page">
+    <header className="velociraptor-console-bar">
+      <div className="velociraptor-console-identity"><Server size={17} /><strong>Velociraptor Console</strong><span className={`server-status-pill ${status?.running ? 'online' : 'offline'}`}><i /> {status?.running ? `Running · GUI 127.0.0.1:${status.gui_port}` : 'Server offline'}</span></div>
+      <div className="velociraptor-console-actions"><span>Frontend 8010</span><button className="text-button" onClick={refreshStatus}><RefreshCw size={14} /> Refresh</button>{consoleReady && <a className="text-button" href={consoleUrl} target="_blank" rel="noreferrer">Open full window <ExternalLink size={14} /></a>}</div>
+    </header>
+    <section className="velociraptor-console-stage">
+      {consoleReady ? <iframe title="Velociraptor server GUI" className="velociraptor-fullscreen-frame" src={consoleUrl} /> : <div className="velociraptor-console-empty"><Maximize2 size={34} /><h1>Velociraptor server GUI</h1><p>{status?.configured ? 'The configuration is ready, but the local server is not running. Start the project with ./startup.sh; the GUI will then load here automatically.' : 'Generate the local Velociraptor server configuration from Project Setup first.'}</p>{status?.log_path && <code>{status.log_path}</code>}{error && <p className="velociraptor-status-error" role="alert"><AlertTriangle size={14} /> {error}</p>}</div>}
     </section>
-
-    <section className="forensics-overview"><div className="panel forensics-hero"><div className="forensics-icon"><FolderSearch size={24} /></div><div><p className="eyebrow">Collection posture</p><h2>Evidence chain intact</h2><p>4 endpoints are reporting. No collection is currently running. Every result is hashed and linked to an alert or case.</p></div><div className="hero-check"><CheckCircle2 size={18} /><span>Verified<br /><b>100%</b></span></div></div><div className="panel quick-fact"><Lock size={16} /><span><strong>Read-only mode</strong><small>VQL is not executed from free text.</small></span></div></section>
-    <section className="panel table-panel"><div className="table-heading"><div><p className="eyebrow">Endpoint inventory</p><h2>Collection targets</h2></div><span className="table-meta"><Server size={14} /> {endpoints.length} enrolled</span></div><div className="endpoint-list">{endpoints.map((endpoint) => <div className="endpoint-row" key={endpoint.name}><span className="endpoint-icon"><Server size={17} /></span><div className="endpoint-name"><strong>{endpoint.name}</strong><small>{endpoint.os}</small></div><div><small className="field-label">Last seen</small><span>{endpoint.lastSeen}</span></div><div><small className="field-label">Health</small><span className={endpoint.health === 'Healthy' ? 'health-good' : 'health-review'}><i />{endpoint.health}</span></div><div><small className="field-label">Identity</small><span className="verified"><ShieldCheck size={14} /> {endpoint.trust}</span></div><button className="icon-button" aria-label={`Review ${endpoint.name}`}><ClipboardCheck size={16} /></button></div>)}</div><div className="panel-footer"><span>Collection limits: 30s runtime · 10 MB result cap · 1 endpoint scope</span><button className="text-button">View evidence vault <FileKey2 size={14} /></button></div></section>
-    <section className="collection-steps"><div className="step complete"><span>01</span><div><strong>Signal selected</strong><small>Wazuh alert or investigation case</small></div></div><div className="step-line" /><div className="step active"><span>02</span><div><strong>Read-only collection</strong><small>Approved artifact with bounded scope</small></div></div><div className="step-line" /><div className="step"><span>03</span><div><strong>Analyst decision</strong><small>Evidence reviewed before response</small></div></div></section>
   </main>
 }

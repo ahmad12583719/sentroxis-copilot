@@ -374,6 +374,7 @@ class VelociraptorServerStatusResponse(BaseModel):
     frontend_port: int = Field(default=8010, ge=1, le=65535)
     gui_port: int | None = Field(default=None, ge=1, le=65535)
     gui_url: str | None = None
+    gui_proxy_url: str | None = None
     log_path: str | None = None
     api_config_path: str | None = None
     api_config_ready: bool = False

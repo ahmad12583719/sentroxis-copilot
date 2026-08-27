@@ -226,3 +226,20 @@ button:active { transform: scale(.98); }
 .velociraptor-gui-empty p { font-size: 10px; line-height: 1.5; margin: 8px 0 12px; max-width: 290px; }
 @media (max-width: 1000px) { .velociraptor-server-grid { grid-template-columns: 1fr; }.velociraptor-server-control, .velociraptor-gui-panel { min-height: auto; }.velociraptor-frame-wrap, .velociraptor-gui-empty { min-height: 300px; } }
 @media (max-width: 560px) { .velociraptor-status-list { grid-template-columns: 1fr; }.velociraptor-control-actions .button { width: 100%; justify-content: center; } }
+
+/* Full-screen same-origin Velociraptor console */
+.velociraptor-console-page { background: #061114; display: flex; flex-direction: column; height: calc(100vh - 58px); min-height: 580px; overflow: hidden; }
+.velociraptor-console-bar { align-items: center; background: #0a191d; border-bottom: 1px solid #1c3a40; display: flex; flex: 0 0 auto; justify-content: space-between; min-height: 54px; padding: 0 22px; }
+.velociraptor-console-identity, .velociraptor-console-actions { align-items: center; display: flex; gap: 12px; }
+.velociraptor-console-identity { color: #d8e9e7; font-size: 13px; }
+.velociraptor-console-identity > svg { color: #2df7b5; }
+.velociraptor-console-actions { color: #76a0a0; font: 9px 'DM Mono'; text-transform: uppercase; letter-spacing: .06em; }
+.velociraptor-console-stage { background: #071114; flex: 1; min-height: 0; position: relative; }
+.velociraptor-fullscreen-frame { background: #fff; border: 0; display: block; height: 100%; inset: 0; position: absolute; width: 100%; }
+.velociraptor-console-empty { align-items: center; background: radial-gradient(circle at 50% 35%, rgba(45, 247, 181, .08), transparent 42%), #071114; color: #879fa1; display: flex; flex-direction: column; height: 100%; justify-content: center; padding: 30px; text-align: center; }
+.velociraptor-console-empty svg { color: #438d7c; margin-bottom: 15px; }
+.velociraptor-console-empty h1 { color: #d6e9e7; font-size: 18px; margin: 0 0 9px; }
+.velociraptor-console-empty p { font-size: 11px; line-height: 1.6; margin: 0; max-width: 540px; }
+.velociraptor-console-empty code { background: #0b2024; border: 1px solid #204349; border-radius: 5px; color: #a6c2c0; font: 9px 'DM Mono'; margin-top: 16px; max-width: 85vw; overflow-wrap: anywhere; padding: 8px 10px; }
+.velociraptor-console-empty .velociraptor-status-error { align-items: center; display: flex; gap: 6px; margin-top: 16px !important; }
+@media (max-width: 700px) { .velociraptor-console-page { height: calc(100vh - 52px); min-height: 500px; }.velociraptor-console-bar { align-items: flex-start; flex-direction: column; gap: 6px; padding: 10px 14px; }.velociraptor-console-actions { flex-wrap: wrap; gap: 9px; }.velociraptor-console-identity { flex-wrap: wrap; gap: 8px; } }
