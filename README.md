@@ -32,6 +32,8 @@ The installer also creates a project-managed Nginx TLS proxy in front of the Waz
 
 The installer requires Linux with Docker Engine and the Compose plugin. It validates the SRS-oriented resource requirements before a real installation, including available storage, memory, x86-64 architecture, and the Wazuh/OpenSearch JVM setting. It does not enroll endpoints, enable active response, modify Velociraptor, or install Velociraptor.
 
+For the complete technical explanation of the installation pipeline, Docker network, Nginx iframe proxy, FastAPI authentication, live Manager/Indexer queries, widget mappings, validation commands, and troubleshooting flow, read [`docs/wazuh-integration-architecture.md`](docs/wazuh-integration-architecture.md).
+
 ### Wazuh credentials
 
 The installer prompts for three separate credentials: the Wazuh indexer `admin` password, the Wazuh dashboard password, and the Wazuh Server API password. Each password must be at least 20 characters and contain uppercase and lowercase letters, a number, and a special character. Use different passwords for each service. Never place passwords in Git, URLs, screenshots, issue reports, or pasted terminal output.
