@@ -29,7 +29,7 @@ The Wazuh installation entrypoint is the repository-root file:
 wazuh_installation.sh
 ```
 
-It downloads the pinned Wazuh Docker deployment, prepares the single-node stack inside the cloned project’s hidden `.wazuh/` directory, generates or preserves TLS certificates, prompts for separate strong indexer/dashboard/API credentials, generates compatible bcrypt hashes, configures the Wazuh Manager API credentials, initializes indexer security, and starts the Wazuh services.
+It downloads the pinned Wazuh Docker deployment, prepares the single-node stack inside the cloned project’s hidden `.wazuh/` directory, generates or preserves TLS certificates, generates compatible bcrypt hashes, configures the Wazuh Manager API credentials, initializes Indexer security, and starts the Wazuh services. The platform-aware path supports AMD64/x86-64 Linux with Docker Engine and AMD64/x86-64 Windows through WSL 2 with Docker Desktop WSL integration. It rejects macOS, ordinary PowerShell/Git Bash, ARM64 for this pinned Wazuh 4.7.5 stack, and unsupported Linux distributions with a clear message.
 
 The installer also creates a project-managed Nginx proxy service. The proxy owns host port 443 and forwards HTTPS traffic to the internal Wazuh Dashboard service on port 5601. This is important because the native Wazuh response includes `X-Frame-Options: sameorigin`, while the Sentroxis Wazuh tab embeds the dashboard. The proxy removes the upstream framing header only at this controlled local endpoint and keeps the normal Wazuh URL:
 

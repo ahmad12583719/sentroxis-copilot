@@ -32,7 +32,7 @@ The installer downloads the pinned Wazuh Docker deployment, currently Wazuh 4.7.
 
 The installer also creates a project-managed Nginx TLS proxy in front of the Wazuh Dashboard. This proxy allows the native Wazuh dashboard to be displayed in Sentroxis while preserving the normal standalone dashboard URL. The proxy owns host port 443; the dashboard container itself remains internal on port 5601.
 
-The installer requires Linux with Docker Engine and the Compose plugin. It validates the SRS-oriented resource requirements before a real installation, including available storage, memory, x86-64 architecture, and the Wazuh/OpenSearch JVM setting. It does not enroll endpoints, enable active response, modify Velociraptor, or install Velociraptor.
+The installer is platform-aware. It supports AMD64/x86-64 Linux hosts with Docker Engine and AMD64/x86-64 Windows hosts when the installer is run inside WSL 2 with Docker Desktop WSL integration enabled. It recognizes Ubuntu, Debian, Fedora, RHEL-family, Amazon Linux, and CentOS-family distributions, validates CPU, memory, storage, and `vm.max_map_count`, and applies the required Indexer kernel setting when permitted. The pinned Wazuh 4.7.5 project stack currently targets AMD64/x86-64; ARM64, macOS, ordinary Windows PowerShell, Git Bash, and unsupported Linux distributions receive a clear prerequisite message rather than a partial installation. It does not enroll endpoints, enable active response, modify Velociraptor, or install Velociraptor.
 
 For the complete technical explanation of the installation pipeline, Docker network, Nginx iframe proxy, FastAPI authentication, live Manager/Indexer queries, widget mappings, validation commands, and troubleshooting flow, read [`docs/wazuh-integration-architecture.md`](docs/wazuh-integration-architecture.md).
 
@@ -153,6 +153,8 @@ The application includes a **Project setup** screen with two separate server ins
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
 For a local console deployment, run `./install.py`. It creates a fresh Sentroxis web-login account and then presents a menu for Wazuh installation, Velociraptor installation, or exit. Selecting Wazuh invokes the existing `sudo ./wazuh_installation.sh` entry point and returns to the menu; selecting Velociraptor invokes the unified Velociraptor setup using the same account credentials. Wazuh installation remains independently controlled and may still be skipped with `SENTROXIS_SKIP_WAZUH=1` when managed outside this checkout.
+
+On Windows, install Docker Desktop, enable its WSL 2 engine and integration for the chosen Linux distribution, open that distribution, clone the repository inside WSL 2, and run `./install.py` there. Do not run the Bash installer from PowerShell or Git Bash. On Linux, install Docker Engine and Compose if they are not already available; the installer handles supported package-manager installation.
 
 See the [unified Velociraptor setup guide](docs/velociraptor-setup.md) and the [Velociraptor contributor handoff](docs/velociraptor-contributor-readme.md) for the operator flow and deployment boundaries.
 

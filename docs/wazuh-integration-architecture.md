@@ -14,7 +14,7 @@ The integration has two independent presentation paths. The **native Wazuh Dashb
 
 ## 2. System topology
 
-The current target is a single Linux machine running Docker Compose, the Sentroxis backend, and the Sentroxis frontend. Wazuh is pinned to version 4.7.5 by the installer. The project-local `.wazuh` directory contains the cloned Wazuh Docker deployment, generated certificates, Compose configuration, and persistent Docker-managed storage.
+The current target is a single AMD64/x86-64 Linux machine running Docker Compose, the Sentroxis backend, and the Sentroxis frontend. Wazuh is pinned to version 4.7.5 by the installer. The project-local `.wazuh` directory contains the cloned Wazuh Docker deployment, generated certificates, Compose configuration, and persistent Docker-managed storage. The installer also supports an AMD64/x86-64 Windows host when it is run inside a WSL 2 Linux distribution connected to Docker Desktop. It does not run from ordinary PowerShell, Git Bash, macOS, ARM64, or unsupported Linux distributions. The Wazuh Docker host requires at least four CPU cores, 12 GiB RAM for this project’s SRS preflight, 80 GiB free disk space, and `vm.max_map_count=262144`.
 
 ```mermaid
 flowchart LR
@@ -31,7 +31,15 @@ flowchart LR
     FastAPI --> SQLite[(Sentroxis SQLite<br/>local cases/alerts/auth)]
 ```
 
-### 2.1 Network endpoints
+### 2.1 Platform execution paths
+
+| Host | Required execution path | Installer behavior |
+|---|---|---|
+| Ubuntu/Debian/Fedora/RHEL-family/Amazon Linux/CentOS-family AMD64 Linux | Run `./install.py` or `sudo ./wazuh_installation.sh` from the Linux shell | Installs or uses Docker Engine and Compose. |
+| Windows AMD64 | Install Docker Desktop with WSL 2 enabled, enable integration for the selected Linux distribution, then run the installer inside WSL 2 | Uses Docker Desktop through the WSL 2 Docker integration; it does not install a separate Docker daemon inside WSL. |
+| macOS, Git Bash, ordinary PowerShell, ARM64, or unsupported Linux | Use a supported Linux VM or supported WSL 2 environment | Stops with a platform-specific prerequisite message. |
+
+### 2.2 Network endpoints
 
 | Component | Host-facing endpoint | Internal endpoint | Role in the integration |
 |---|---|---|---|

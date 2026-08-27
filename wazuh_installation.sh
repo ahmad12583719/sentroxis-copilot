@@ -32,6 +32,9 @@ WAZUH_VERSION="${WAZUH_VERSION:-$DEFAULT_VERSION}"
 WAZUH_HOME="${WAZUH_HOME:-$DEFAULT_HOME}"
 WAZUH_API_BIND_ADDRESS="${WAZUH_API_BIND_ADDRESS:-127.0.0.1}"
 WAZUH_OPENSEARCH_JAVA_OPTS="${WAZUH_OPENSEARCH_JAVA_OPTS:--Xms1g -Xmx1g}"
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(uname -m)"
+WSL2_HOST=0
 DRY_RUN=0
 
 log() { printf '[wazuh-install] %s\n' "$*"; }
@@ -54,6 +57,12 @@ Environment overrides:
   WAZUH_INDEXER_PASSWORD        Non-default indexer admin password.
   WAZUH_DASHBOARD_PASSWORD      Non-default dashboard/kibanaserver password.
   WAZUH_API_PASSWORD            Non-default Wazuh API password.
+
+Supported host execution:
+  Linux AMD64/x86-64 with Docker Engine.
+  Windows AMD64/x86-64 through WSL 2 with Docker Desktop WSL integration.
+  macOS, ordinary Windows PowerShell, Git Bash, ARM64, and unsupported Linux
+  distributions are rejected clearly rather than partially installing Wazuh.
 
 Passwords may be supplied through the environment for automation, but protected
 interactive prompts are preferred. Passwords must be printable, contain no whitespace,
@@ -89,37 +98,77 @@ fi
 command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 check_os() {
-  [[ -r /etc/os-release ]] || fatal "Cannot identify the operating system."
+  case "$HOST_OS" in
+    Linux) ;;
+    Darwin)
+      fatal "macOS is not a supported host for this Bash/Docker Wazuh installer. Use a supported Linux VM or Windows WSL 2 with Docker Desktop."
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      fatal "Run this installer inside a WSL 2 Linux distribution with Docker Desktop WSL integration enabled; do not run it from Git Bash or PowerShell."
+      ;;
+    *)
+      fatal "Unsupported host kernel: $HOST_OS. Use Linux or Windows through WSL 2."
+      ;;
+  esac
+
+  [[ -r /etc/os-release ]] || fatal "Cannot identify the Linux distribution. Run inside a supported Linux system or WSL 2 distribution."
   # shellcheck disable=SC1091
   . /etc/os-release
   case "${ID:-}" in
-    ubuntu|debian|fedora|rhel|rocky|almalinux) ;;
-    *) fatal "Supported hosts are Ubuntu/Debian or Fedora/RHEL-family Linux; found ${ID:-unknown}." ;;
+    ubuntu|debian|fedora|rhel|rocky|almalinux|amzn|centos|ol) ;;
+    *) fatal "Unsupported Linux distribution: ${ID:-unknown}. Use Ubuntu, Debian, Fedora, RHEL/Rocky/AlmaLinux, Amazon Linux, or CentOS Stream." ;;
   esac
-  case "${ARCH:-$(uname -m)}" in
+
+  case "$HOST_ARCH" in
     x86_64|amd64) ;;
-    *) fatal "The Sentroxis SRS specifies an x86-64 primary node; found $(uname -m)." ;;
+    aarch64|arm64)
+      fatal "This pinned Wazuh 4.7.5 Sentroxis deployment targets AMD64/x86-64. ARM64 requires matching Wazuh images and is not enabled by this pinned stack."
+      ;;
+    *) fatal "Unsupported CPU architecture: $HOST_ARCH. Use a 64-bit AMD64/x86-64 host." ;;
   esac
+
+  if [[ -n "${WSL_DISTRO_NAME:-}" || -n "${WSL_INTEROP:-}" || -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+    WSL2_HOST=1
+  fi
 }
 
 check_resources() {
-  local mem_gib disk_gib
+  local mem_gib disk_gib cpu_count map_count
   mem_gib="$(awk '/MemTotal:/ {printf "%d", $2/1024/1024}' /proc/meminfo)"
   disk_gib="$(df -Pk / 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')"
+  cpu_count="$(getconf _NPROCESSORS_ONLN 2>/dev/null || nproc 2>/dev/null || printf '0')"
+  map_count="$(cat /proc/sys/vm/max_map_count 2>/dev/null || printf '0')"
+  if (( cpu_count < 4 )); then
+    (( DRY_RUN )) && warn "Wazuh Docker recommends at least 4 CPU cores; detected ${cpu_count}." || fatal "At least 4 CPU cores are required for this Wazuh Docker deployment; detected ${cpu_count}."
+  fi
   if (( mem_gib < 12 )); then
     (( DRY_RUN )) && warn "SRS preflight: at least 12 GiB RAM is recommended; detected ${mem_gib} GiB." || fatal "At least 12 GiB RAM is recommended for the SRS primary node; detected ${mem_gib} GiB."
   fi
   if [[ -z "$disk_gib" || "$disk_gib" -lt 80 ]]; then
     (( DRY_RUN )) && warn "SRS preflight: at least 80 GiB free disk space is recommended; detected ${disk_gib:-unknown} GiB." || fatal "At least 80 GiB free disk space is required under $WAZUH_HOME."
   fi
+  if [[ "$map_count" =~ ^[0-9]+$ ]] && (( map_count < 262144 )); then
+    if (( DRY_RUN )); then
+      warn "Wazuh Indexer requires vm.max_map_count >= 262144; detected ${map_count}."
+    elif command_exists sysctl && sysctl -w vm.max_map_count=262144 >/dev/null; then
+      log "Set vm.max_map_count to 262144 for the Wazuh Indexer."
+      if [[ -d /etc/sysctl.d ]]; then printf 'vm.max_map_count=262144\n' > /etc/sysctl.d/99-sentroxis-wazuh.conf; fi
+    else
+      fatal "vm.max_map_count is ${map_count}; set it to 262144, then rerun the installer. On Windows, run 'wsl -d <distribution> -- sysctl -w vm.max_map_count=262144' inside WSL 2."
+    fi
+  fi
 }
 
 install_docker_if_needed() {
   if command_exists docker && docker compose version >/dev/null 2>&1; then
     log "Docker Engine and Compose plugin are already available."
+    if (( WSL2_HOST )); then log "Detected WSL 2; using Docker Desktop through WSL integration."; fi
     return
   fi
   (( DRY_RUN )) && { log "DRY-RUN: would install Docker Engine and Docker Compose plugin."; return; }
+  if (( WSL2_HOST )); then
+    fatal "Docker is unavailable inside WSL 2. Install Docker Desktop on Windows, enable WSL 2 integration for this distribution, then rerun this installer."
+  fi
   check_os
   log "Installing Docker Engine and the Compose plugin from the host distribution."
   case "$ID" in
