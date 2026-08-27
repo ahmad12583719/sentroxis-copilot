@@ -203,7 +203,7 @@ def create_fresh_sentroxis_account() -> tuple[str, str]:
     return principal.email, password
 
 
-def run_wazuh() -> int:
+def run_wazuh(password: str) -> int:
     script = ROOT / "wazuh_installation.sh"
     if not script.is_file():
         print(f"ERROR: Wazuh installer not found: {script}")
@@ -267,7 +267,7 @@ def installation_menu(password: str) -> int:
             print("\nInstaller input closed; returning to the shell.")
             return 0
         if choice == "1":
-            result = run_wazuh()
+            result = run_wazuh(password)
             print(f"Wazuh installation finished with exit code {result}.")
             continue
         if choice == "2":
