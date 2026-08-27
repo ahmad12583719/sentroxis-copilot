@@ -373,10 +373,32 @@ initialize_indexer_security() {
 validate_stack() {
   (( DRY_RUN )) && { log "DRY-RUN: would run docker compose config and health checks."; return; }
   compose config >/dev/null || fatal "Generated Compose configuration is invalid."
+  # Stop the complete stack before changing credentials. This prevents the
+  # Dashboard, Manager/Filebeat, and Indexer from retaining mixed credentials
+  # during a rerun. `down` preserves named volumes and indexed Wazuh data.
+  compose down --remove-orphans
   # Bootstrap the indexer before starting dashboard and manager. The official
   # image entrypoint intentionally leaves securityadmin disabled by default.
   compose up -d wazuh.indexer
   initialize_indexer_security
+  if ! INDEXER_AUTH_USER=admin INDEXER_AUTH_PASSWORD="$WAZUH_INDEXER_PASSWORD" python3 - <<'PY'
+import base64
+import os
+import ssl
+import urllib.request
+
+credentials = f"{os.environ['INDEXER_AUTH_USER']}:{os.environ['INDEXER_AUTH_PASSWORD']}".encode()
+request = urllib.request.Request("https://127.0.0.1:9200/")
+request.add_header("Authorization", "Basic " + base64.b64encode(credentials).decode())
+context = ssl._create_unverified_context()
+with urllib.request.urlopen(request, context=context, timeout=5) as response:
+    if response.status != 200:
+        raise SystemExit(response.status)
+PY
+  then
+    fatal "Indexer admin authentication failed after security bootstrap; refusing to start dependent services."
+  fi
+  log "Indexer admin authentication verified."
   # Recreate dependent services after securityadmin so dashboard migrations do
   # not retain the pre-bootstrap 503 state from an earlier failed attempt.
   compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
