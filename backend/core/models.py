@@ -293,6 +293,7 @@ class VelociraptorConfigGenerateResponse(BaseModel):
 
     config_path: str
     client_config_path: str
+    api_config_path: str
     frontend_port: int = Field(default=8010, ge=1, le=65535)
     frontend_url: str
     admin_username: str
@@ -374,4 +375,6 @@ class VelociraptorServerStatusResponse(BaseModel):
     gui_port: int | None = Field(default=None, ge=1, le=65535)
     gui_url: str | None = None
     log_path: str | None = None
+    api_config_path: str | None = None
+    api_config_ready: bool = False
     message: str

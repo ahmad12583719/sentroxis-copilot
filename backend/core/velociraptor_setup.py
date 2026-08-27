@@ -247,8 +247,9 @@ class VelociraptorSetupService:
 
         config_path = Path(installation.config_path)
         client_config_path = self.runtime_dir / "client.config.yaml"
-        if config_path.exists() or client_config_path.exists():
-            raise FileExistsError("A configuration already exists; back it up or remove it before generating a new one")
+        api_config_path = self.runtime_dir / "api.config.yaml"
+        if config_path.exists() or client_config_path.exists() or api_config_path.exists():
+            raise FileExistsError("A server, client, or API configuration already exists; back it up or remove it before generating a new one")
 
         normalized_datastore = str(Path(datastore_path).expanduser())
         normalized_logs = str(Path(log_path).expanduser()) if log_path else str(Path(normalized_datastore) / "logs")
@@ -299,6 +300,7 @@ class VelociraptorSetupService:
         merge_path: Path | None = None
         config_temp: Path | None = None
         client_temp: Path | None = None
+        api_temp: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.runtime_dir, prefix=".config-merge.", suffix=".json", delete=False) as merge_file:
                 merge_path = Path(merge_file.name)
@@ -341,9 +343,33 @@ class VelociraptorSetupService:
             client_temp = None
             if os.name == "posix":
                 client_config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+            # The API config includes a client certificate and private key. Use the
+            # fixed local API identity and its minimal API role; never print it.
+            with tempfile.NamedTemporaryFile(mode="wb", dir=self.runtime_dir, prefix=".api-client.", suffix=".yaml", delete=False) as output_file:
+                api_temp = Path(output_file.name)
+            api_generated = subprocess.run(
+                [
+                    str(binary), "--config", str(config_path), "config", "api_client",
+                    "--name", "sentroxis-copilot-api", "--role", "api", str(api_temp),
+                ],
+                cwd=self.runtime_dir,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=90,
+                check=False,
+            )
+            if api_generated.returncode != 0 or not api_temp.is_file() or not api_temp.stat().st_size:
+                raise RuntimeError("Velociraptor API client configuration generation failed")
+            os.replace(api_temp, api_config_path)
+            api_temp = None
+            if os.name == "posix":
+                api_config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
             return {
                 "config_path": str(config_path),
                 "client_config_path": str(client_config_path),
+                "api_config_path": str(api_config_path),
                 "frontend_url": frontend_url,
                 "admin_username": admin_username,
             }
@@ -355,6 +381,8 @@ class VelociraptorSetupService:
                 config_temp.unlink(missing_ok=True)
             if client_temp:
                 client_temp.unlink(missing_ok=True)
+            if api_temp:
+                api_temp.unlink(missing_ok=True)
 
     @staticmethod
     def _set_frontend_port(config_path: Path, port: int = DEFAULT_FRONTEND_PORT) -> bool:
@@ -499,8 +527,11 @@ class VelociraptorSetupService:
             gui_port = int(gui_port_text) if gui_port_text else None
         except ValueError:
             gui_port = None
-        gui_url = self._read_config_value(config_path, "GUI", "public_url")
+        # The dashboard embeds only the local GUI listener. The server configuration
+        # may carry a deployment-facing public_url, which must not redirect this UI.
+        gui_url = f"https://127.0.0.1:{gui_port}/app/index.html" if gui_port else None
         log_path = self.runtime_dir / "velociraptor-server.log"
+        api_config_path = self.runtime_dir / "api.config.yaml"
         command = self.server_command or [str(Path(installation.binary_path)), "--config", str(config_path), "frontend", "-v"]
         return {
             "configured": config_path.is_file(),
@@ -513,6 +544,8 @@ class VelociraptorSetupService:
             "gui_port": gui_port,
             "gui_url": gui_url,
             "log_path": str(log_path),
+            "api_config_path": str(api_config_path) if api_config_path.is_file() else None,
+            "api_config_ready": api_config_path.is_file(),
         }
 
     def _ensure_logging_directory(self, config_path: Path) -> None:

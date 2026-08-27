@@ -51,10 +51,11 @@ backend/runtime/velociraptor/
 ├── installation.json
 ├── server.config.yaml
 ├── client.config.yaml
+├── api.config.yaml
 └── setup-summary.json
 ```
 
-After Step 3, the terminal prints the full `client.config.yaml` path. That client configuration contains the operator-selected server IP or DNS name and **port 8010**, not `localhost:8000`. Copy it securely into the endpoint packaging or deployment process; the script does not print its contents.
+After Step 3, the terminal prints the full `client.config.yaml` and `api.config.yaml` paths. The endpoint client configuration contains the operator-selected server IP or DNS name and **port 8010**, not `localhost:8000`. The API configuration is created with the official `config api_client` command and a least-privilege `api` role for the fixed local `sentroxis-copilot-api` identity. Both YAML files contain sensitive certificate material; copy them securely and do not print their contents. The browser workflow additionally offers a fixed authenticated **Download API configuration** link after successful generation. [1]
 
 ## Individual execution
 
@@ -76,8 +77,9 @@ Generated server and client YAML files contain deployment-sensitive material. On
 
 ## References
 
-[1]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor Quickstart Guide"
-[2]: https://docs.velociraptor.app/downloads/ "Velociraptor Downloads and verification"
+[1]: https://www.velociraptor-docs.org/docs/server_automation/server_api/ "Velociraptor Server API and API client configuration"
+[2]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor Quickstart Guide"
+[3]: https://docs.velociraptor.app/downloads/ "Velociraptor Downloads and verification"
 
 
 ## Local server dashboard
@@ -91,8 +93,8 @@ The **Velociraptor** page now shows the local server status, configuration path,
   --config <project>/backend/runtime/velociraptor/server.config.yaml frontend -v
 ```
 
-The status panel refreshes automatically and offers a separate explicit stop control. On POSIX hosts, startup and the backend both use `backend/runtime/velociraptor/velociraptor-server.pid`; the backend validates that the PID still belongs to the generated local configuration before treating it as running.
+The status panel refreshes automatically. On POSIX hosts, startup and the backend both use `backend/runtime/velociraptor/velociraptor-server.pid`; the backend validates that the PID still belongs to the generated local configuration before treating it as running.
 
-When the server is running, the right-hand half-page panel embeds the configured Velociraptor GUI URL. An **Open separately** link is also provided because browser certificate warnings or a GUI framing policy can prevent an embedded self-signed page from loading. The server log is written to `backend/runtime/velociraptor/velociraptor-server.log`.
+When the server is running, the right-hand half-page panel embeds the local Velociraptor GUI at `https://127.0.0.1:<gui-port>/app/index.html`. An **Open separately** link is also provided because browser certificate warnings or a GUI framing policy can prevent an embedded self-signed page from loading. The server log is written to `backend/runtime/velociraptor/velociraptor-server.log`. The dashboard has no server start/stop buttons: `./startup.sh` controls the server and pressing `Ctrl+C` in that startup terminal stops Sentroxis and its local Velociraptor process together.
 
 If starting the server reports that its logging directory cannot be created, regenerate the configuration with a directory under your home folder, such as `~/.sentroxis/velociraptor`, rather than a privileged path such as `/opt/velociraptor`.

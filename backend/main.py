@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.core.auth import (
@@ -428,9 +429,10 @@ def generate_velociraptor_config(
     return VelociraptorConfigGenerateResponse(
         config_path=result["config_path"],
         client_config_path=result["client_config_path"],
+        api_config_path=result["api_config_path"],
         frontend_url=result["frontend_url"],
         admin_username=result["admin_username"],
-        message="Self-signed server and client configurations were generated. Frontend port is fixed at 8010.",
+        message="Self-signed server, endpoint client, and local API client configurations were generated. Frontend port is fixed at 8010.",
         audit_id=audit.id,
     )
 
@@ -478,6 +480,24 @@ def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: 
         exit_code=session.process.poll(),
         config_path=str(session.config_path),
         config_ready=session.config_path.is_file(),
+    )
+
+
+@app.get("/api/velociraptor/api-config/download")
+def download_velociraptor_api_config(principal: Principal = Depends(get_principal)) -> FileResponse:
+    _ = principal
+    try:
+        _ = velociraptor_setup.load_installation()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Velociraptor has not been prepared") from exc
+    api_config_path = velociraptor_setup.runtime_dir / "api.config.yaml"
+    if not api_config_path.is_file():
+        raise HTTPException(status_code=404, detail="API configuration has not been generated")
+    return FileResponse(
+        api_config_path,
+        media_type="application/x-yaml",
+        filename="velociraptor-api.config.yaml",
+        headers={"Cache-Control": "no-store"},
     )
 
 

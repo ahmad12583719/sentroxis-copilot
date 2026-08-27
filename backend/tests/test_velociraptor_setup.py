@@ -103,10 +103,13 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
         if command[1:3] == ["config", "generate"]:
             captured_merge.update(json.loads(Path(command[-1]).read_text(encoding="utf-8")))
             kwargs["stdout"].write(b"Frontend:\n  bind_port: 8010\n")
-        else:
+        elif command[4] == "client":
             assert command[1:4] == ["--config", str(runtime_dir / "server.config.yaml"), "config"]
-            assert command[4] == "client"
             kwargs["stdout"].write(b"Client:\n  server_urls:\n  - https://192.168.1.20:8010/\n")
+        else:
+            assert command[1:5] == ["--config", str(runtime_dir / "server.config.yaml"), "config", "api_client"]
+            assert command[5:9] == ["--name", "sentroxis-copilot-api", "--role", "api"]
+            Path(command[-1]).write_text("api_connection_string: 127.0.0.1:8001\n", encoding="utf-8")
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr("backend.core.velociraptor_setup.subprocess.run", fake_run)
@@ -129,12 +132,14 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
     assert result["admin_username"] == "analyst@example.com"
     assert Path(result["config_path"]).is_file()
     assert Path(result["client_config_path"]).is_file()
+    assert Path(result["api_config_path"]).is_file()
     assert captured_merge["Frontend"] == {"hostname": "192.168.1.20", "bind_address": "0.0.0.0", "bind_port": 8010}
     assert captured_merge["GUI"]["bind_port"] == 9443
     assert captured_merge["Client"]["server_urls"] == ["https://192.168.1.20:8010/"]
     assert captured_merge["Client"]["writeback_windows"] == "HKLM\\SOFTWARE\\Velocidex\\Velociraptor"
     assert captured_merge["GUI"]["initial_users"][0]["name"] == "analyst@example.com"
     assert captured_merge["GUI"]["initial_users"][0]["password_hash"] != "strong-test-password"
+    assert Path(result["api_config_path"]).read_text(encoding="utf-8").startswith("api_connection_string:")
 
 
 def test_generate_self_signed_config_rejects_existing_config(tmp_path):
@@ -186,7 +191,7 @@ def test_server_details_exposes_local_gui_status_and_fixed_command(tmp_path):
         "  bind_port: 8010\n"
         "GUI:\n"
         "  bind_port: 9443\n"
-        "  public_url: https://127.0.0.1:9443/app/index.html\n",
+        "  public_url: https://velo.example.test:9443/app/index.html\n",
         encoding="utf-8",
     )
     installation = VelociraptorInstallation(

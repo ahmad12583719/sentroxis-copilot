@@ -113,8 +113,9 @@ def main() -> int:
         return error.returncode or 1
 
     print("\nAll setup scripts completed successfully.")
-    print(f"Client configuration download/copy path: {ROOT / 'backend' / 'runtime' / 'velociraptor' / 'client.config.yaml'}")
-    print("Review server.config.yaml before explicitly starting the Velociraptor server.")
+    print(f"Endpoint client configuration path: {ROOT / 'backend' / 'runtime' / 'velociraptor' / 'client.config.yaml'}")
+    print(f"Local API configuration path: {ROOT / 'backend' / 'runtime' / 'velociraptor' / 'api.config.yaml'}")
+    print("Review server.config.yaml before starting the project with ./startup.sh.")
     return 0
 
 

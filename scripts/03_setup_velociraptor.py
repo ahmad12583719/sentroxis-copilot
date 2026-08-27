@@ -100,6 +100,28 @@ def run_config_command(command: list[str], output_path: Path, runtime_dir: Path)
             temporary_path.unlink(missing_ok=True)
 
 
+def generate_api_config(binary: Path, server_config: Path, api_config: Path, runtime_dir: Path) -> None:
+    """Generate a fixed least-privilege local API client certificate/config file."""
+    temporary_path = runtime_dir / ".api.config.yaml.tmp"
+    temporary_path.unlink(missing_ok=True)
+    try:
+        result = subprocess.run(
+            [str(binary), "--config", str(server_config), "config", "api_client", "--name", "sentroxis-copilot-api", "--role", "api", str(temporary_path)],
+            cwd=runtime_dir,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=90,
+            check=False,
+        )
+        if result.returncode != 0 or not temporary_path.is_file() or not temporary_path.stat().st_size:
+            raise RuntimeError("Velociraptor API client configuration command failed")
+        os.replace(temporary_path, api_config)
+        secure_file(api_config)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Step 3: create self-signed Velociraptor server and client configuration.")
@@ -166,10 +188,11 @@ def main() -> int:
 
     config_path = runtime_dir / "server.config.yaml"
     client_path = runtime_dir / "client.config.yaml"
-    if (config_path.exists() or client_path.exists()) and not args.force:
-        print("ERROR: Existing server.config.yaml or client.config.yaml found. Back it up, remove it, or pass --force.")
+    api_path = runtime_dir / "api.config.yaml"
+    if (config_path.exists() or client_path.exists() or api_path.exists()) and not args.force:
+        print("ERROR: Existing server.config.yaml, client.config.yaml, or api.config.yaml found. Back it up, remove it, or pass --force.")
         return 1
-    for path in (config_path, client_path):
+    for path in (config_path, client_path, api_path):
         if path.exists() and args.force:
             path.unlink()
 
@@ -201,9 +224,11 @@ def main() -> int:
         secure_file(merge_path)
         run_config_command([str(binary), "config", "generate", "--merge_file", str(merge_path)], config_path, runtime_dir)
         run_config_command([str(binary), "--config", str(config_path), "config", "client"], client_path, runtime_dir)
+        generate_api_config(binary, config_path, api_path, runtime_dir)
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
         config_path.unlink(missing_ok=True)
         client_path.unlink(missing_ok=True)
+        api_path.unlink(missing_ok=True)
         print(f"ERROR: {error}")
         return 1
     finally:
@@ -212,7 +237,7 @@ def main() -> int:
 
     summary_path = runtime_dir / "setup-summary.json"
     summary_path.write_text(
-        json.dumps({"server_os": server_os, "deployment": "self_signed_basic", "frontend_url": frontend_url, "frontend_port": FRONTEND_PORT, "gui_port": gui_port, "administrator": identity["email"], "server_config": str(config_path), "client_config": str(client_path)}, indent=2) + "\n",
+        json.dumps({"server_os": server_os, "deployment": "self_signed_basic", "frontend_url": frontend_url, "frontend_port": FRONTEND_PORT, "gui_port": gui_port, "administrator": identity["email"], "server_config": str(config_path), "client_config": str(client_path), "api_config": str(api_path)}, indent=2) + "\n",
         encoding="utf-8",
     )
     secure_file(summary_path)
@@ -221,7 +246,8 @@ def main() -> int:
     print(f"Frontend client URL: {frontend_url}")
     print(f"Server configuration saved: {config_path}")
     print(f"Client configuration saved: {client_path}")
-    print("Copy client.config.yaml securely to the client packaging/deployment process; it is not printed to the terminal.")
+    print(f"API configuration saved: {api_path}")
+    print("Copy client.config.yaml and api.config.yaml securely; their contents are not printed to the terminal.")
     return 0
 
 

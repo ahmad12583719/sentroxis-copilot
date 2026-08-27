@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, CheckCircle2, ClipboardCheck, ExternalLink, FileKey2, FolderSearch, Loader2, Lock, Play, RefreshCw, Server, ShieldCheck, Square, TerminalSquare } from 'lucide-react'
+import { Activity, CheckCircle2, ClipboardCheck, Download, ExternalLink, FileKey2, FolderSearch, Lock, RefreshCw, Server, ShieldCheck, TerminalSquare } from 'lucide-react'
 import { authRequest } from '../auth/AuthProvider'
 
 const endpoints = [
@@ -11,7 +11,6 @@ const endpoints = [
 
 export default function Velociraptor() {
   const [status, setStatus] = useState(null)
-  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
   const refreshStatus = async () => {
@@ -32,56 +31,26 @@ export default function Velociraptor() {
     return () => window.clearInterval(timer)
   }, [])
 
-  const runServer = async () => {
-    if (!status?.platform || !window.confirm('Start the locally configured Velociraptor server now?')) return
-    setBusy('start')
-    setError('')
-    try {
-      await authRequest('/api/velociraptor/run', { method: 'POST', body: JSON.stringify({ platform: status.platform, confirm_run: true }) })
-      await refreshStatus()
-    } catch (requestError) {
-      setError(requestError.message || 'Velociraptor server could not be started')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const stopServer = async () => {
-    if (!window.confirm('Stop the locally managed Velociraptor server?')) return
-    setBusy('stop')
-    setError('')
-    try {
-      await authRequest('/api/velociraptor/stop', { method: 'POST', body: JSON.stringify({}) })
-      await refreshStatus()
-    } catch (requestError) {
-      setError(requestError.message || 'Velociraptor server could not be stopped')
-    } finally {
-      setBusy('')
-    }
-  }
-
   const guiAvailable = Boolean(status?.running && status?.gui_url)
   return <main className="page-shell subpage-shell">
-    <section className="page-heading compact-heading"><div><p className="eyebrow"><FolderSearch size={13} /> Endpoint forensics <span className="slash">/</span> approved collections</p><h1>Velociraptor <em>evidence.</em></h1><p className="lede">Collect bounded, read-only context with provenance attached to every artifact.</p></div><div className="heading-actions"><span className={`connection-badge ${status?.running ? '' : 'muted'}`}><i /> {status?.running ? 'Server running' : 'Server offline'}</span><button className="button secondary" onClick={refreshStatus} disabled={busy !== ''}><RefreshCw size={14} /> Refresh status</button></div></section>
+    <section className="page-heading compact-heading"><div><p className="eyebrow"><FolderSearch size={13} /> Endpoint forensics <span className="slash">/</span> approved collections</p><h1>Velociraptor <em>evidence.</em></h1><p className="lede">Collect bounded, read-only context with provenance attached to every artifact.</p></div><div className="heading-actions"><span className={`connection-badge ${status?.running ? '' : 'muted'}`}><i /> {status?.running ? 'Server running' : 'Server offline'}</span><button className="button secondary" onClick={refreshStatus}><RefreshCw size={14} /> Refresh status</button></div></section>
 
     <section className="velociraptor-server-grid">
       <article className="panel velociraptor-server-control">
-        <div className="panel-heading"><div><p className="eyebrow"><Activity size={13} /> Local runtime</p><h2>Server control</h2></div><span className={`server-status-pill ${status?.running ? 'online' : 'offline'}`}><i /> {status?.running ? 'Running' : 'Stopped'}</span></div>
+        <div className="panel-heading"><div><p className="eyebrow"><Activity size={13} /> Local runtime</p><h2>Server status</h2></div><span className={`server-status-pill ${status?.running ? 'online' : 'offline'}`}><i /> {status?.running ? 'Running' : 'Stopped'}</span></div>
         <p>{status?.message || 'Loading the local Velociraptor runtime status…'}</p>
         <dl className="velociraptor-status-list"><div><dt>Frontend port</dt><dd>{status?.frontend_port || 8010} <small>fixed</small></dd></div><div><dt>GUI port</dt><dd>{status?.gui_port || 'Configure first'}</dd></div><div><dt>Process</dt><dd>{status?.running ? `PID ${status.pid}` : 'Not running'}</dd></div><div><dt>Configuration</dt><dd>{status?.configured ? 'Ready' : 'Required'}</dd></div></dl>
         {status?.command_preview && <div className="velociraptor-command"><TerminalSquare size={15} /><code>{status.command_preview}</code></div>}
         {status?.config_path && <p className="runtime-path"><strong>Config:</strong> {status.config_path}</p>}
         {status?.log_path && <p className="runtime-path"><strong>Log:</strong> {status.log_path}</p>}
-        <div className="velociraptor-control-actions">
-          <button className="button primary" onClick={runServer} disabled={!status?.configured || !status?.platform || busy !== '' || status?.running}>{busy === 'start' ? <Loader2 size={14} className="spin" /> : <Play size={14} />} Start local server</button>
-          <button className="button stop-button" onClick={stopServer} disabled={!status?.running || busy !== ''}>{busy === 'stop' ? <Loader2 size={14} className="spin" /> : <Square size={13} />} Stop server</button>
-        </div>
+        {status?.api_config_ready ? <a className="button secondary velociraptor-api-download" href="/api/velociraptor/api-config/download"><Download size={14} /> Download API configuration</a> : <p className="runtime-path"><strong>API configuration:</strong> generated with the next client configuration run.</p>}
+        <p className="velociraptor-managed-note">The project-local server is managed by <code>./startup.sh</code>. Pressing <code>Ctrl+C</code> there stops both Sentroxis and the Velociraptor process.</p>
         {error && <p className="velociraptor-status-error" role="alert">{error}</p>}
       </article>
 
       <article className="panel velociraptor-gui-panel">
         <div className="panel-heading"><div><p className="eyebrow"><Server size={13} /> Embedded server GUI</p><h2>Velociraptor console</h2></div>{status?.gui_url && <a className="text-button" href={status.gui_url} target="_blank" rel="noreferrer">Open separately <ExternalLink size={14} /></a>}</div>
-        {guiAvailable ? <div className="velociraptor-frame-wrap"><iframe title="Velociraptor server GUI" className="velociraptor-server-frame" src={status.gui_url} /></div> : <div className="velociraptor-gui-empty"><Server size={30} /><strong>GUI is not available yet</strong><p>{status?.configured ? 'Start the local server to load its GUI in this panel.' : 'Generate server.config.yaml from Project Setup first.'}</p>{status?.gui_url && <a className="text-button" href={status.gui_url} target="_blank" rel="noreferrer">Open configured GUI <ExternalLink size={14} /></a>}</div>}
+        {guiAvailable ? <div className="velociraptor-frame-wrap"><iframe title="Velociraptor server GUI" className="velociraptor-server-frame" src={status.gui_url} /></div> : <div className="velociraptor-gui-empty"><Server size={30} /><strong>GUI is not available yet</strong><p>{status?.configured ? 'Run ./startup.sh to load the local GUI in this panel.' : 'Generate server.config.yaml from Project Setup first.'}</p>{status?.gui_url && <a className="text-button" href={status.gui_url} target="_blank" rel="noreferrer">Open local GUI <ExternalLink size={14} /></a>}</div>}
       </article>
     </section>
 
