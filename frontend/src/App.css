@@ -160,8 +160,8 @@ button:active { transform: scale(.98); }
 
 /* Wazuh operations workspace */
 .wazuh-dashboard-panel { overflow: hidden; margin-bottom: 16px; }
-.dashboard-frame-wrap { height: 560px; background: #061014; border-top: 1px solid #1b343b; border-bottom: 1px solid #1b343b; }
-.wazuh-dashboard-frame { width: 100%; height: 100%; border: 0; background: #061014; }
+.dashboard-frame-wrap { height: clamp(620px, calc(100vh - 220px), 900px); background: #061014; border-top: 1px solid #1b343b; border-bottom: 1px solid #1b343b; }
+.wazuh-dashboard-frame { width: 100%; height: 100%; min-height: 620px; border: 0; background: #061014; display: block; }
 .wazuh-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; margin-bottom: 16px; }
 .wazuh-summary-grid .metric-card { min-height: 130px; }
 .telemetry-panel, .recent-alerts-panel, .fleet-panel { margin-bottom: 16px; overflow: hidden; }
@@ -193,8 +193,8 @@ button:active { transform: scale(.98); }
 .reserved-content strong { color: #d8d2f2; font-size: 13px; }
 .reserved-content p { max-width: 310px; margin: 0; color: #77868d; font-size: 11px; line-height: 1.6; }
 .reserved-status { padding: 6px 9px; border: 1px solid #4c416e; border-radius: 5px; color: #b6a8ee; background: #211d35; font: 9px 'DM Mono'; }
-@media (max-width: 900px) { .agent-management-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 460px; } }
-@media (max-width: 650px) { .wazuh-summary-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 390px; }.agent-grid { grid-template-columns: 1fr; }.topnav { gap: 10px; margin-left: 18px; overflow-x: auto; }.topbar { padding: 0 16px; }.environment-pill { display: none; } }
+@media (max-width: 900px) { .agent-management-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: clamp(560px, calc(100vh - 190px), 780px); }.wazuh-dashboard-frame { min-height: 560px; } }
+@media (max-width: 650px) { .wazuh-summary-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 560px; }.wazuh-dashboard-frame { min-height: 560px; }.agent-grid { grid-template-columns: 1fr; }.topnav { gap: 10px; margin-left: 18px; overflow-x: auto; }.topbar { padding: 0 16px; }.environment-pill { display: none; } }
 
 /* Velociraptor local server dashboard */
 .velociraptor-server-grid { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr); gap: 16px; margin-bottom: 16px; }
