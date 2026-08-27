@@ -41,7 +41,7 @@ class WazuhService:
         """
         manager_url = os.getenv("WAZUH_MANAGER_API_URL", "https://127.0.0.1:55000").rstrip("/")
         indexer_url = os.getenv("WAZUH_INDEXER_URL", "https://127.0.0.1:9200").rstrip("/")
-        api_user = os.getenv("WAZUH_API_USER", "wazuh")
+        api_user = os.getenv("WAZUH_API_USER", "wazuh-wui")
         api_password = os.getenv("WAZUH_API_PASSWORD", "")
         indexer_user = os.getenv("WAZUH_INDEXER_USER", "admin")
         indexer_password = os.getenv("WAZUH_INDEXER_PASSWORD", "")
