@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import secrets
@@ -19,6 +20,7 @@ import sqlite3
 import string
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -79,6 +81,50 @@ def reset_previous_sentroxis_state() -> None:
     print("Previous Sentroxis account state forgotten. Wazuh files and data were not changed.")
 
 
+@dataclass(frozen=True)
+class InstallerPrincipal:
+    subject: str
+    role: str
+    name: str
+    email: str
+
+
+def register_local_first_user(name: str, email: str, password: str) -> InstallerPrincipal:
+    """Create the same PBKDF2 account record without importing FastAPI."""
+    normalized_name = " ".join(name.strip().split())
+    normalized_email = email.strip().lower()
+    if not normalized_name or len(normalized_name) > 120:
+        raise ValueError("Name must be between 1 and 120 characters")
+    if "@" not in normalized_email or len(normalized_email) > 320:
+        raise ValueError("Enter a valid email address")
+    if len(password) < 12 or len(password) > 128:
+        raise ValueError("Password must be between 12 and 128 characters")
+    with sqlite3.connect(DB_PATH) as db:
+        if db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+            raise PermissionError("Initial registration is already closed")
+        user_id = f"usr-{secrets.token_hex(12)}"
+        salt = secrets.token_bytes(16)
+        digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 210_000)
+        stored_hash = f"pbkdf2_sha256$210000${salt.hex()}${digest.hex()}"
+        db.execute(
+            "INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+            (user_id, normalized_name, normalized_email, stored_hash, "admin"),
+        )
+    return InstallerPrincipal(subject=user_id, role="admin", name=normalized_name, email=normalized_email)
+
+
+def register_installer_user(name: str, email: str, password: str):
+    """Prefer the backend auth implementation, with a fresh-checkout fallback."""
+    try:
+        from backend.core.auth import register_first_user
+    except ModuleNotFoundError as error:
+        if error.name != "fastapi":
+            raise
+        print("FastAPI is not installed yet; using the installer’s local authentication bootstrap.")
+        return register_local_first_user(name, email, password)
+    return register_first_user(name, email, password)
+
+
 def validate_wazuh_compatible_password(password: str) -> None:
     """Ensure the shared password satisfies the Wazuh installer policy."""
     if len(password) < 20:
@@ -124,9 +170,14 @@ def write_wazuh_handoff(shared_password: str) -> None:
 def create_fresh_sentroxis_account() -> tuple[str, str]:
     reset_previous_sentroxis_state()
     ensure_auth_schema()
-    from backend.core.auth import configure_auth_db, register_first_user
-
-    configure_auth_db(str(DB_PATH))
+    try:
+        from backend.core.auth import configure_auth_db
+    except ModuleNotFoundError as error:
+        if error.name != "fastapi":
+            raise
+        configure_auth_db = None
+    if configure_auth_db is not None:
+        configure_auth_db(str(DB_PATH))
     name = ask("Sentroxis display name")
     email = ask("Sentroxis login email").lower()
     while True:
@@ -137,7 +188,7 @@ def create_fresh_sentroxis_account() -> tuple[str, str]:
             continue
         try:
             validate_wazuh_compatible_password(password)
-            principal = register_first_user(name, email, password)
+            principal = register_installer_user(name, email, password)
         except (ValueError, PermissionError) as error:
             print(f"ERROR: {error}")
             if isinstance(error, PermissionError):
