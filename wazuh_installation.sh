@@ -353,7 +353,7 @@ initialize_indexer_security() {
       export CACERT="/usr/share/wazuh-indexer/certs/root-ca.pem"
       export CERT="/usr/share/wazuh-indexer/certs/admin.pem"
       export KEY="/usr/share/wazuh-indexer/certs/admin-key.pem"
-      if ! output="$(bash /securityadmin.sh 2>&1)"; then
+      if ! output="$(bash /securityadmin.sh -cd /usr/share/wazuh-indexer/opensearch-security/ -nhnv -cacert "$CACERT" -cert "$CERT" -key "$KEY" -p 9200 -icl 2>&1)"; then
         printf "%s\\n" "$output"
         exit 1
       fi

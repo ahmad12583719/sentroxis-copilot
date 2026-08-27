@@ -63,7 +63,7 @@ class WazuhService:
                     if isinstance(token, str) and token:
                         response = client.get(
                             f"{manager_url}/agents",
-                            params={"limit": 500, "select": "id,name,ip,status,os,version,lastKeepAlive"},
+                            params={"limit": 500},
                             headers={"Authorization": f"Bearer {token}"},
                         )
                         response.raise_for_status()
