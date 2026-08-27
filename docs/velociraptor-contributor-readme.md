@@ -8,17 +8,18 @@ This document is the handoff guide for the contributor responsible for Velocirap
 
 ## Intended single-machine workflow
 
-The end-user experience is staged. The user clones the repository once, installs Wazuh, completes the Velociraptor setup, and starts Sentroxis.
+The end-user experience is staged through the unified installer. The user clones the repository once, creates a fresh Sentroxis web-login account, selects Wazuh or Velociraptor from the menu, and starts Sentroxis.
 
 ```text
 1. Clone Sentroxis-Copilot.
-2. Run sudo ./wazuh_installation.sh.
-3. Run the Velociraptor setup/wizard owned by this contributor.
-4. Run ./startup.sh.
-5. Log in to https://localhost:5173 and use the four-tab workspace.
+2. Run ./Velociraptor/install.py.
+3. Create the fresh Sentroxis web-login account when prompted.
+4. Select Install Wazuh, Install Velociraptor, or Exit.
+5. Run ./startup.sh after the selected infrastructure is configured.
+6. Log in to https://127.0.0.1:5173.
 ```
 
-The Wazuh installation must remain a separate first-class step. The Velociraptor contributor may add or refine the Velociraptor step, but `startup.sh` must not silently install packages, download arbitrary binaries, run a wizard, overwrite credentials, or modify a user’s Velociraptor configuration. Installation and startup are different responsibilities.
+The Wazuh installation remains a separate first-class workflow invoked by the menu only after explicit operator selection. The Velociraptor installer may create its own verified runtime files, but it must not modify Wazuh files, credentials, certificates, or generated data.
 
 ## What the Wazuh contributor has implemented
 
@@ -68,12 +69,12 @@ The Wazuh installer owns generated files under `.wazuh/single-node/`, including 
 
 ## Existing Velociraptor area
 
-The existing Velociraptor scripts are under `Velociraptor/`:
+The Velociraptor installation files are under `Velociraptor/`:
 
 ```text
+Velociraptor/install.py
 Velociraptor/00_run_all_setup.py
 Velociraptor/01_installation_files.py
-Velociraptor/install.py (Task 01 sign-up)
 Velociraptor/03_setup_velociraptor.py
 ```
 
@@ -138,15 +139,15 @@ Do not expose a Wazuh password, Velociraptor password, private key, client confi
 
 ## Startup behavior to preserve
 
-At the current handoff point, the following should be true:
+The current setup entry points are:
 
 ```text
-sudo ./wazuh_installation.sh   # installs/configures Wazuh only
-# Velociraptor contributor workflow  # separate setup/configuration
-./startup.sh                    # starts installed Wazuh and Sentroxis
+./Velociraptor/install.py       # fresh sign-up plus Wazuh/Velociraptor/Exit menu
+sudo ./wazuh_installation.sh    # Wazuh-only workflow when selected
+./startup.sh                    # starts configured Sentroxis and Velociraptor services
 ```
 
-`startup.sh` must remain safe to run after both infrastructure components have already been configured. It should not rerun a Velociraptor wizard on every start, overwrite generated client configuration, or make the user repeat setup prompts. If Velociraptor startup is added later, it must detect a valid existing configuration, use a fixed and documented command, avoid duplicate processes, expose readiness, and fail without taking down Wazuh or the Sentroxis frontend.
+`startup.sh` detects a valid existing Velociraptor configuration, uses the fixed project-local command, avoids duplicate processes, exposes readiness, and fails without taking down Wazuh or the Sentroxis frontend. It does not rerun the sign-up or configuration prompts.
 
 If the Velociraptor contributor needs to change `startup.sh`, keep the Wazuh block intact and test these independent cases:
 
@@ -189,7 +190,7 @@ npm run lint
 npm test -- --run
 npm run build
 cd ..
-python3 -m compileall scripts backend
+python3 -m compileall Velociraptor backend
 ```
 
 Run the Velociraptor setup in a disposable private test environment, verify that the Wazuh dashboard still opens at `https://localhost/`, verify that `https://localhost:5173` still loads, and confirm that Wazuh installation is not triggered by an application restart.
@@ -210,4 +211,4 @@ backend/runtime/velociraptor/
 
 Before considering Velociraptor work complete, document the exact setup command, required operator inputs, generated files, ports, authentication method, TLS behavior, service start/stop behavior, readiness checks, failure recovery, and cleanup procedure. Add frontend and backend tests, preserve Wazuh behavior, and update the main README only after the Velociraptor workflow is stable.
 
-The final user-facing README should continue to state that Wazuh is installed first, Velociraptor is configured through its separate contributor-owned workflow, and `startup.sh` starts the already-installed application stack. It should not claim that Velociraptor is complete until its implementation and verification are finished.
+The final user-facing README should state that `Velociraptor/install.py` creates the fresh web-login account and presents the explicit Wazuh/Velociraptor/Exit menu. It must continue to identify Wazuh as an independent boundary and explain that `startup.sh` starts already-configured application services.

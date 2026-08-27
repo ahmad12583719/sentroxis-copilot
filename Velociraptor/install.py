@@ -8,6 +8,7 @@ or command-line argument.
 """
 from __future__ import annotations
 
+import argparse
 import getpass
 import json
 import os
@@ -18,6 +19,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 VELO_DIR = ROOT / "Velociraptor"
 BACKEND_DIR = ROOT / "backend"
 DB_PATH = BACKEND_DIR / "sentroxis.db"
@@ -148,6 +151,8 @@ def installation_menu(password: str) -> int:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Fresh Sentroxis sign-up followed by the Wazuh/Velociraptor installation menu.")
+    parser.parse_args()
     print("=== Sentroxis fresh installation ===")
     print("Task 01: create the fresh Sentroxis web-login account")
     try:
