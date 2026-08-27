@@ -68,13 +68,13 @@ The Wazuh installer owns generated files under `.wazuh/single-node/`, including 
 
 ## Existing Velociraptor area
 
-The existing Velociraptor scripts are under `scripts/`:
+The existing Velociraptor scripts are under `Velociraptor/`:
 
 ```text
-scripts/00_run_all_setup.py
-scripts/01_installation_files.py
-scripts/02_signup_credentials.py
-scripts/03_setup_velociraptor.py
+Velociraptor/00_run_all_setup.py
+Velociraptor/01_installation_files.py
+Velociraptor/install.py (Task 01 sign-up)
+Velociraptor/03_setup_velociraptor.py
 ```
 
 The current guide for that area is:

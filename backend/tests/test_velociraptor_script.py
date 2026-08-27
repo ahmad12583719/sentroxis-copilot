@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 
-SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "Velociraptor"
 
 
 def load_script(name: str, filename: str):
@@ -18,7 +18,7 @@ def load_script(name: str, filename: str):
 
 
 installation_script = load_script("sentroxis_installation_files", "01_installation_files.py")
-signup_script = load_script("sentroxis_signup_credentials", "02_signup_credentials.py")
+installer_script = load_script("sentroxis_unified_installer", "install.py")
 setup_script = load_script("sentroxis_setup_velociraptor", "03_setup_velociraptor.py")
 runner_script = load_script("sentroxis_run_all_setup", "00_run_all_setup.py")
 
@@ -39,13 +39,20 @@ def test_detected_platform_rejects_unsupported_host(monkeypatch):
         installation_script.detected_platform()
 
 
-def test_signup_password_hash_is_verifiable_and_not_plaintext():
-    stored = signup_script.password_hash("strong-test-password")
+def test_unified_installer_uses_project_database_for_web_login(tmp_path, monkeypatch):
+    import sqlite3
+    from backend.core.auth import configure_auth_db, register_first_user, authenticate
 
-    assert stored.startswith("pbkdf2_sha256$")
-    assert "strong-test-password" not in stored
-    assert signup_script.password_matches("strong-test-password", stored) is True
-    assert signup_script.password_matches("wrong-password", stored) is False
+    db_path = tmp_path / "sentroxis.db"
+    monkeypatch.setattr(installer_script, "DB_PATH", db_path)
+    installer_script.ensure_auth_schema()
+    configure_auth_db(str(db_path))
+    principal = register_first_user("Test Analyst", "test@example.com", "strong-test-password")
+
+    assert principal.email == "test@example.com"
+    assert authenticate("test@example.com", "strong-test-password") is not None
+    with sqlite3.connect(db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 1
 
 
 def test_setup_step_enforces_fixed_frontend_port_and_valid_login_username():
@@ -58,49 +65,17 @@ def test_master_runner_passes_password_only_through_standard_input(monkeypatch):
     captured = {}
 
     def fake_run(command, **kwargs):
+        from types import SimpleNamespace
         captured["command"] = command
         captured.update(kwargs)
+        return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(runner_script.subprocess, "run", fake_run)
     runner_script.run(["python", "step.py", "--password-stdin"], "strong-test-password")
 
-    assert captured["input"] == "strong-test-password\n"
+    assert captured["input"] == "strong-test-password"
     assert captured["text"] is True
     assert "strong-test-password" not in captured["command"]
-
-
-def test_signup_rejects_short_password_before_creating_database(tmp_path, monkeypatch):
-    db_path = tmp_path / "sentroxis.db"
-    handoff_path = tmp_path / "identity.json"
-    monkeypatch.setattr(signup_script.sys, "argv", [
-        "02_signup_credentials.py",
-        "--db-path", str(db_path),
-        "--handoff-path", str(handoff_path),
-        "--name", "Test Analyst",
-        "--email", "test@example.com",
-    ])
-    monkeypatch.setattr(signup_script.getpass, "getpass", lambda _: "too-short")
-
-    assert signup_script.main() == 2
-    assert not db_path.exists()
-    assert not handoff_path.exists()
-
-
-def test_signup_discovers_existing_account_for_safe_reuse(tmp_path):
-    db_path = tmp_path / "sentroxis.db"
-    import sqlite3
-
-    with sqlite3.connect(db_path) as db:
-        signup_script.ensure_users_table(db)
-        db.execute(
-            "INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            ("usr-test", "Test Analyst", "test@example.com", signup_script.password_hash("strong-test-password"), "admin", "2026-01-01T00:00:00+00:00"),
-        )
-
-    account = signup_script.existing_account(db_path)
-
-    assert account is not None
-    assert account[1:3] == ("Test Analyst", "test@example.com")
 
 
 class _Response:

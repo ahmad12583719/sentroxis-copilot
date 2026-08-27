@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Step 3 of 3: generate self-signed Velociraptor server and client configuration.
+"""Step 2 of 2 after Task 01 sign-up: generate self-signed Velociraptor server and client configuration.
 
 This script uses the verified binary recorded by Step 1 and the email identity
 recorded by Step 2. The same password is requested again (or received directly

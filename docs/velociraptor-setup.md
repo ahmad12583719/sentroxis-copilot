@@ -1,100 +1,87 @@
-# Four-Script Velociraptor Setup
+# Velociraptor and Sentroxis installation
 
-The repository provides a **four-script local setup workflow** for a verified, self-signed Velociraptor deployment. It downloads only an allowlisted official binary, verifies its published SHA-256 digest, creates or verifies the initial Sentroxis account, and generates matching server and client configurations.
+The repository now has one unified installer entry point in `Velociraptor/install.py`. It creates a fresh Sentroxis web-login account first, then opens an installation menu. The same account email and password are used to authenticate the Velociraptor configuration step.
 
-> The workflow uses **Self Signed SSL with Basic authentication**. It does not configure an external OIDC/SSO identity provider, create an operating-system service, alter firewall rules, install privileged packages, or expose a server automatically.
+> This installer never modifies Wazuh implementation or configuration. The existing `wazuh_installation.sh` is invoked only when the operator selects **Install Wazuh** from the menu.
 
-## Scripts
+## Unified workflow
 
-| Order | Script | Purpose |
-|---:|---|---|
-| 1 | `scripts/00_run_all_setup.py` | Master runner that invokes the other three scripts in the correct order. |
-| 2 | `scripts/01_installation_files.py` | Detects the selected platform, downloads the pinned official release, verifies SHA-256, and writes local installation state. |
-| 3 | `scripts/02_signup_credentials.py` | Creates or verifies the initial Sentroxis account and saves only the user identity for the next step. |
-| 4 | `scripts/03_setup_velociraptor.py` | Verifies the same Sentroxis credentials, creates self-signed server and client configurations, and reports their paths. |
-
-## Recommended command
-
-Run all scripts in sequence from the repository root:
+Run from the repository root:
 
 ```bash
-chmod 700 scripts/00_run_all_setup.py scripts/01_installation_files.py \
-  scripts/02_signup_credentials.py scripts/03_setup_velociraptor.py
-./scripts/00_run_all_setup.py
+chmod 700 Velociraptor/*.py
+./Velociraptor/install.py
 ```
 
-The master runner asks for the account, server, filesystem, certificate, network, and GUI choices once. It passes the password to Steps 2 and 3 through process standard input only; it does not write the password to a file or place it in a command-line argument. Sentroxis passwords must be **12–128 characters**, matching the application login policy.
+### Task 01: fresh Sentroxis sign-up
 
-If `backend/sentroxis.db` already contains an initial account, Step 2 detects it and shows its email as the default. Press Enter to reuse that account’s email, then enter its existing password. The workflow will not overwrite or silently replace an existing account with a different email.
+The installer asks for a display name, email, password, and password confirmation. It intentionally starts fresh: if `backend/sentroxis.db` already exists, the installer asks for confirmation before deleting only the local Sentroxis account/session database. It does not delete Wazuh files, Wazuh data, Velociraptor files, or other project data.
 
-## Required operator choices
+The password is validated against the web application’s 12–128 character policy and is held only in process memory. The installer writes an identity handoff containing the account ID and email but never writes the plaintext password.
 
-| Setting | Handling |
-|---|---|
-| Deployment type | Fixed to **Self Signed SSL + Basic authentication**. |
-| Frontend client port | Fixed to **8010**. |
-| GUI port | Selected by the operator; default is `8889`. |
-| Server operating system | Selected by the operator: Linux, Windows, or macOS. |
-| Datastore and logs paths | Selected by the operator. |
-| Certificate lifetime | Selected by the operator: 1, 2, or 10 years. |
-| Windows registry writeback | Selected by the operator. |
-| Public frontend DNS name or server IP | Selected by the operator and embedded in the generated client configuration. |
-| Experimental WebSocket client communications | Selected by the operator. |
-| Initial Velociraptor administrator | Reuses the Step 2 Sentroxis login **email**. |
-| Initial Velociraptor password | Reuses the same Step 2 password after a local verification. Plaintext is not stored. |
+### Task 02: installation menu
 
-The workflow generates fresh Velociraptor key material and creates these files under `backend/runtime/velociraptor/` by default:
+After sign-up, the installer repeatedly displays:
 
 ```text
-backend/runtime/velociraptor/
-├── velociraptor
-├── installation.json
-├── server.config.yaml
-├── client.config.yaml
-├── api.config.yaml
-└── setup-summary.json
+What would you like to install?
+1. Install Wazuh
+2. Install Velociraptor
+3. Exit installer
 ```
 
-After Step 3, the terminal prints the full `client.config.yaml` and `api.config.yaml` paths. The endpoint client configuration contains the operator-selected server IP or DNS name and **port 8010**, not `localhost:8000`. The API configuration is created with the official `config api_client` command and a least-privilege `api` role for the fixed local `sentroxis-copilot-api` identity. Both YAML files contain sensitive certificate material; copy them securely and do not print their contents. The browser workflow additionally offers a fixed authenticated **Download API configuration** link after successful generation. [1]
+Selecting **Install Wazuh** runs the existing `sudo ./wazuh_installation.sh` workflow and returns to this menu after it finishes. Selecting **Install Velociraptor** runs `Velociraptor/00_run_all_setup.py`, which calls `01_installation_files.py` and `03_setup_velociraptor.py` using the Task 01 identity and password. Selecting **Exit installer** leaves the account available for normal web login.
 
-## Individual execution
+## Velociraptor scripts
 
-The steps can also be run separately. Script 3 will reuse the email from the Step 2 identity handoff and prompt for the same account password again when it is not called by the master runner.
+| File | Purpose |
+|---|---|
+| `Velociraptor/install.py` | Fresh Sentroxis sign-up and Wazuh/Velociraptor/Exit menu. |
+| `Velociraptor/00_run_all_setup.py` | Runs Velociraptor installation and configuration after Task 01; it does not create another account. |
+| `Velociraptor/01_installation_files.py` | Downloads the allowlisted official binary and verifies its SHA-256 digest. |
+| `Velociraptor/03_setup_velociraptor.py` | Generates self-signed server, endpoint-client, and API-client configurations. |
+
+The retired `02_signup_credentials.py` script has been removed. Velociraptor configuration reuses the account created in Task 01. The password is passed to the configuration runner through standard input only.
+
+## Generated files
+
+The default runtime directory is `backend/runtime/velociraptor/`:
+
+```text
+velociraptor
+installation.json
+server.config.yaml
+client.config.yaml
+api.config.yaml
+setup-summary.json
+```
+
+Frontend client port is fixed to **8010**. The GUI binds locally on the selected GUI port, normally `8889`. The API configuration is generated using the official `config api_client` command and should be treated as sensitive private-key material.
+
+## Running the project
+
+After configuration, review `server.config.yaml` and start the project:
 
 ```bash
-./scripts/01_installation_files.py
-./scripts/02_signup_credentials.py
-./scripts/03_setup_velociraptor.py
+./startup.sh
 ```
 
-Use `--help` on any script to inspect its non-interactive arguments. For example, `scripts/01_installation_files.py --dry-run` displays the detected platform and official asset without downloading it.
+`startup.sh` starts the project-local Velociraptor binary with:
 
-If Step 1 is taking longer than expected, do not use `Ctrl+C` unless you intend to stop it. When interrupted, the script now exits cleanly, keeps an owner-only partial file such as `.velociraptor.part`, and the next run automatically resumes the download after the release server confirms HTTP range support. The final binary is still accepted only after its complete SHA-256 digest matches the pinned official value. Use `--force` only when you want to discard the partial file and restart the download.
+```bash
+./velociraptor --config server.config.yaml frontend -v
+```
 
-## Security and deployment note
+The Sentroxis Velociraptor page uses the same-origin development proxy route `/velociraptor-console/` to avoid cross-origin secure-cookie and CSRF failures. Open Sentroxis at `https://127.0.0.1:5173` and select the Velociraptor page. The page displays the full-screen local console without a separate left-side panel. Pressing `Ctrl+C` in the startup terminal stops Sentroxis and its child Velociraptor process together.
 
-Generated server and client YAML files contain deployment-sensitive material. On POSIX hosts, the scripts apply owner-only permissions. Keep the files and their backups under appropriate access control. The official quickstart describes self-signed TLS with Basic authentication as suitable for short-term, private-network usage rather than broad public exposure. Use official deployment guidance for production TLS, identity, network controls, backups, and service management. [1] [2]
+## Recovery and safety
+
+If a previous configuration exists, use `./Velociraptor/install.py` after confirming the fresh-state prompt, or run `./Velociraptor/00_run_all_setup.py --force` with a valid Task 01 identity. If an interrupted binary download exists, the installation-file step resumes it only after HTTP range support is confirmed and always performs the final SHA-256 check.
+
+All generated YAML files are owner-readable on POSIX systems. Do not print or commit `server.config.yaml`, `client.config.yaml`, or `api.config.yaml`.
 
 ## References
 
 [1]: https://www.velociraptor-docs.org/docs/server_automation/server_api/ "Velociraptor Server API and API client configuration"
 [2]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor Quickstart Guide"
 [3]: https://docs.velociraptor.app/downloads/ "Velociraptor Downloads and verification"
-
-
-## Local server dashboard
-
-`startup.sh` no longer installs, requires, or starts Wazuh. Wazuh remains an optional external integration; the application starts without it and displays its existing integration state when configured.
-
-The **Velociraptor** page now shows the local server status, configuration path, log path, fixed frontend port, and selected GUI port. When `startup.sh` finds both the verified binary and `server.config.yaml`, it starts the project-local server automatically. The dashboard’s **Start local server** button remains available as an explicit retry control when startup was skipped or the process has been stopped. Sentroxis runs only the verified project-local binary using the generated configuration:
-
-```bash
-<project>/backend/runtime/velociraptor/velociraptor \
-  --config <project>/backend/runtime/velociraptor/server.config.yaml frontend -v
-```
-
-The status panel refreshes automatically. On POSIX hosts, startup and the backend both use `backend/runtime/velociraptor/velociraptor-server.pid`; the backend validates that the PID still belongs to the generated local configuration before treating it as running.
-
-When the server is running, the full-screen Sentroxis Velociraptor page loads the GUI through the same-origin URL `https://127.0.0.1:5173/velociraptor-console/app/index.html`. The Velociraptor listener itself remains local at `https://127.0.0.1:<gui-port>`. The generated `GUI.base_path` and `GUI.public_url` match the same-origin console route, preventing a cross-origin iframe from losing its secure session/CSRF cookie. The server log is written to `backend/runtime/velociraptor/velociraptor-server.log`. The dashboard has no server start/stop buttons: `./startup.sh` controls the server and pressing `Ctrl+C` in that startup terminal stops Sentroxis and its local Velociraptor process together.
-
-If starting the server reports that its logging directory cannot be created, regenerate the configuration with a directory under your home folder, such as `~/.sentroxis/velociraptor`, rather than a privileged path such as `/opt/velociraptor`.

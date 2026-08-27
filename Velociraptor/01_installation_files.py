@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Step 1 of 3: download and verify the local Velociraptor binary.
+"""Step 1 of 2: download and verify the local Velociraptor binary.
 
 Only the pinned official Velocidex release assets in ASSETS are accepted. The
 script does not install operating-system packages, create services, alter firewall
@@ -200,7 +200,7 @@ def main() -> int:
     state_path.write_text(json.dumps(installation, indent=2) + "\n", encoding="utf-8")
     secure_file(state_path)
     print(f"Installation state saved: {state_path}")
-    print("Next: run scripts/02_signup_credentials.py")
+    print("Next: run Velociraptor/install.py or Velociraptor/00_run_all_setup.py with a Task 01 identity")
     return 0
 
 
