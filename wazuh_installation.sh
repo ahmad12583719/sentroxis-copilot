@@ -263,6 +263,21 @@ PY
   # file during securityadmin. It contains bcrypt hashes, not plaintext secrets.
   chmod 644 "$users" "$dashboard_api"
   chmod 600 "$compose.sentroxis-backup" "$users.sentroxis-backup" "$dashboard_api.sentroxis-backup"
+
+  local runtime_env owner
+  runtime_env="${SCRIPT_DIR}/runtime/wazuh-api.env"
+  owner="${SUDO_USER:-root}"
+  mkdir -p "${SCRIPT_DIR}/runtime"
+  cat > "$runtime_env" <<EOF
+WAZUH_MANAGER_API_URL=https://127.0.0.1:55000
+WAZUH_INDEXER_URL=https://127.0.0.1:9200
+WAZUH_API_USER=wazuh-wui
+WAZUH_API_PASSWORD=$(printf '%q' "$WAZUH_API_PASSWORD")
+WAZUH_INDEXER_USER=admin
+WAZUH_INDEXER_PASSWORD=$(printf '%q' "$WAZUH_INDEXER_PASSWORD")
+EOF
+  chown "$owner:$owner" "$runtime_env" 2>/dev/null || true
+  chmod 600 "$runtime_env"
 }
 
 configure_local_proxy() {

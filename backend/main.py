@@ -518,6 +518,15 @@ def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> V
     return VelociraptorRunResponse(running=running, pid=pid, command_preview=installation.server_command_preview, config_path=installation.config_path, message="Velociraptor server process stopped.", audit_id=audit.id)
 
 
+@app.get("/api/wazuh/overview")
+def get_wazuh_overview(principal: Principal = Depends(get_principal)) -> dict[str, Any]:
+    _ = principal
+    try:
+        return wazuh.live_overview()
+    except Exception as exc:
+        return {"agents": [], "alerts": [], "errors": [f"Wazuh live data request failed: {type(exc).__name__}"], "timestamp": datetime.now(timezone.utc)}
+
+
 @app.get("/api/alerts", response_model=AlertListResponse)
 def get_alerts(
     source: str | None = Query(default=None, pattern="^(wazuh|velociraptor)$"),

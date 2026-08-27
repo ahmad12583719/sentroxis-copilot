@@ -69,6 +69,15 @@ cd frontend
 npm install
 cd "$ROOT_DIR"
 
+if [[ -f "$ROOT_DIR/runtime/wazuh-api.env" ]]; then
+  printf '==> Loading project-local Wazuh API connection settings\n'
+  set -a
+  source "$ROOT_DIR/runtime/wazuh-api.env"
+  set +a
+else
+  printf 'WARNING: runtime/wazuh-api.env is missing; Wazuh widgets will report a credential configuration error.\n' >&2
+fi
+
 printf '\n==> Running backend tests\n'
 PYTHONPATH="$ROOT_DIR" pytest -q backend/tests
 

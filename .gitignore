@@ -22,3 +22,7 @@ frontend/.vite/
 
 # Velociraptor runtime (binary, generated config, logs)
 backend/runtime/
+
+# Project-local runtime credentials and development TLS
+runtime/wazuh-api.env
+runtime/sentroxis-dev-tls/
