@@ -200,7 +200,7 @@ def main() -> int:
     state_path.write_text(json.dumps(installation, indent=2) + "\n", encoding="utf-8")
     secure_file(state_path)
     print(f"Installation state saved: {state_path}")
-    print("Next: run Velociraptor/install.py or Velociraptor/00_run_all_setup.py with a Task 01 identity")
+    print("Next: run ./install.py or Velociraptor/00_run_all_setup.py with a Task 01 identity")
     return 0
 
 

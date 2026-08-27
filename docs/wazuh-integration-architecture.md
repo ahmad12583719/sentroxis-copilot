@@ -8,7 +8,7 @@
 
 This document explains how the Sentroxis Copilot project connects a project-local Wazuh single-node deployment to the Sentroxis React/FastAPI application. It is intended for operators who install and run the project, developers who modify the Wazuh integration, and contributors who need to avoid crossing into the separate Velociraptor workstream.
 
-The integration has two independent presentation paths. The **native Wazuh Dashboard** is displayed directly in a browser iframe through a local Nginx HTTPS proxy. It is not rendered or reimplemented by FastAPI. The **Sentroxis telemetry widgets** use a protected FastAPI endpoint that authenticates to the Wazuh Manager API for live agent inventory and to the Wazuh Indexer for recent alert search. The browser receives normalized data from FastAPI rather than Wazuh credentials. The unified `Velociraptor/install.py` entrypoint creates the Sentroxis account first; the initial password becomes the Wazuh Indexer/Dashboard `admin` password, while internal Wazuh service passwords are generated automatically.
+The integration has two independent presentation paths. The **native Wazuh Dashboard** is displayed directly in a browser iframe through a local Nginx HTTPS proxy. It is not rendered or reimplemented by FastAPI. The **Sentroxis telemetry widgets** use a protected FastAPI endpoint that authenticates to the Wazuh Manager API for live agent inventory and to the Wazuh Indexer for recent alert search. The browser receives normalized data from FastAPI rather than Wazuh credentials. The unified root-level `install.py` entrypoint creates the Sentroxis account first; the initial password becomes the Wazuh Indexer/Dashboard `admin` password, while internal Wazuh service passwords are generated automatically.
 
 > **Important distinction:** The embedded dashboard is a browser-to-Nginx-to-dashboard path. The custom widgets are a browser-to-Vite-to-FastAPI-to-Wazuh path. They share the same Wazuh deployment but are not the same request pipeline.
 
@@ -55,7 +55,7 @@ The user runs:
 sudo ./wazuh_installation.sh
 ```
 
-`wazuh_installation.sh` is the direct Wazuh installation entry point and is also invoked by the unified `Velociraptor/install.py` menu. In unified mode, the initial Sentroxis password is handed to it through a protected temporary environment file; internal Wazuh service passwords are generated automatically. The installation script remains deliberately separate from `startup.sh`: installation provisions infrastructure and credentials, while startup starts infrastructure that is already installed and then starts the Sentroxis application.
+`wazuh_installation.sh` is the direct Wazuh installation entry point and is also invoked by the unified root-level `install.py` menu. In unified mode, the initial Sentroxis password is handed to it through a protected temporary environment file; internal Wazuh service passwords are generated automatically. The installation script remains deliberately separate from `startup.sh`: installation provisions infrastructure and credentials, while startup starts infrastructure that is already installed and then starts the Sentroxis application.
 
 ### 3.2 Installer stages
 

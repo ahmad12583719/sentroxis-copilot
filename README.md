@@ -13,8 +13,8 @@ git clone https://github.com/ahmad12583719/sentroxis-copilot.git
 cd sentroxis-copilot
 
 # Create the Sentroxis account and open the installation menu.
-chmod 700 Velociraptor/*.py
-./Velociraptor/install.py
+chmod 700 install.py Velociraptor/*.py
+./install.py
 
 # Select Install Wazuh from the menu when prompted.
 # The initial Sentroxis password becomes the Wazuh admin password.
@@ -24,7 +24,7 @@ chmod 700 Velociraptor/*.py
 ./startup.sh
 ```
 
-`wazuh_installation.sh` remains the direct Wazuh installation entrypoint for operators who intentionally want to run Wazuh separately. `Velociraptor/install.py` is the unified entrypoint that creates the initial Sentroxis account and securely hands the password to the Wazuh installer when Wazuh is selected. `startup.sh` assumes Wazuh is already installed; it starts the project-managed Wazuh services, validates the Sentroxis application, and starts the backend and frontend. The legacy `start.sh` file remains a compatibility wrapper that delegates to `startup.sh`.
+`wazuh_installation.sh` remains the direct Wazuh installation entrypoint for operators who intentionally want to run Wazuh separately. root-level `install.py` is the unified entrypoint that creates the initial Sentroxis account and securely hands the password to the Wazuh installer when Wazuh is selected. `startup.sh` assumes Wazuh is already installed; it starts the project-managed Wazuh services, validates the Sentroxis application, and starts the backend and frontend. The legacy `start.sh` file remains a compatibility wrapper that delegates to `startup.sh`.
 
 ## Wazuh installation
 
@@ -152,14 +152,14 @@ The application includes a **Project setup** screen with two separate server ins
 
 The setup screen records readiness state but does not install software on remote hosts or execute commands. The backend exposes `GET /api/setup` and `POST /api/setup/{server_key}/start`. Endpoints must use HTTPS and may not contain embedded credentials. This keeps the browser workflow safe while leaving room for a later, separately authorized deployment runner.
 
-For a local console deployment, run `./Velociraptor/install.py`. It creates a fresh Sentroxis web-login account and then presents a menu for Wazuh installation, Velociraptor installation, or exit. Selecting Wazuh invokes the existing `sudo ./wazuh_installation.sh` entry point and returns to the menu; selecting Velociraptor invokes the unified Velociraptor setup using the same account credentials. Wazuh installation remains independently controlled and may still be skipped with `SENTROXIS_SKIP_WAZUH=1` when managed outside this checkout.
+For a local console deployment, run `./install.py`. It creates a fresh Sentroxis web-login account and then presents a menu for Wazuh installation, Velociraptor installation, or exit. Selecting Wazuh invokes the existing `sudo ./wazuh_installation.sh` entry point and returns to the menu; selecting Velociraptor invokes the unified Velociraptor setup using the same account credentials. Wazuh installation remains independently controlled and may still be skipped with `SENTROXIS_SKIP_WAZUH=1` when managed outside this checkout.
 
 See the [unified Velociraptor setup guide](docs/velociraptor-setup.md) and the [Velociraptor contributor handoff](docs/velociraptor-contributor-readme.md) for the operator flow and deployment boundaries.
 
 | Setup item | Current behavior |
 |---|---|
 | Wazuh Server | Installed and started from the cloned checkout by `wazuh_installation.sh` and `startup.sh`; manager, indexer, dashboard, credentials, certificates, proxy, and health readiness are handled by the Wazuh workflow |
-| Velociraptor Server | Installed through `Velociraptor/install.py` and the renamed folder’s verified setup runner; generated configs use the existing bounded self-signed workflow |
+| Velociraptor Server | Installed through root-level `install.py` and the `Velociraptor/` verified setup runner; generated configs use the existing bounded self-signed workflow |
 | Credentials | Not accepted in URLs; reserved for authenticated setup steps |
 | Remote installation | Not executed by the browser wizard; readiness state only |
 | Audit | Readiness start events are written to the backend audit store |
@@ -176,8 +176,8 @@ After pulling the repository, start the unified installer and then the applicati
 
 ```bash
 cd ~/Desktop/project/sentroxis-copilot
-chmod 700 Velociraptor/*.py
-./Velociraptor/install.py
+chmod 700 install.py Velociraptor/*.py
+./install.py
 ./startup.sh
 ```
 

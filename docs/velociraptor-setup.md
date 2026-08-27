@@ -1,6 +1,6 @@
 # Velociraptor and Sentroxis installation
 
-The repository now has one unified installer entry point in `Velociraptor/install.py`. It creates a fresh Sentroxis web-login account first, then opens an installation menu. The same account email and password are used to authenticate the Velociraptor configuration step.
+The repository now has one unified installer entry point in the repository-root `install.py`. It creates a fresh Sentroxis web-login account first, then opens an installation menu. The same account email and password are used to authenticate the Velociraptor configuration step.
 
 > This installer never modifies Wazuh implementation or configuration. The existing `wazuh_installation.sh` is invoked only when the operator selects **Install Wazuh** from the menu.
 
@@ -9,8 +9,8 @@ The repository now has one unified installer entry point in `Velociraptor/instal
 Run from the repository root:
 
 ```bash
-chmod 700 Velociraptor/*.py
-./Velociraptor/install.py
+chmod 700 install.py Velociraptor/*.py
+./install.py
 ```
 
 ### Task 01: fresh Sentroxis sign-up
@@ -36,7 +36,7 @@ Selecting **Install Wazuh** securely hands the Task 01 password to `wazuh_instal
 
 | File | Purpose |
 |---|---|
-| `Velociraptor/install.py` | Fresh Sentroxis sign-up and Wazuh/Velociraptor/Exit menu. |
+| `install.py` | Fresh Sentroxis sign-up and Wazuh/Velociraptor/Exit menu. |
 | `Velociraptor/00_run_all_setup.py` | Runs Velociraptor installation and configuration after Task 01; it does not create another account. |
 | `Velociraptor/01_installation_files.py` | Downloads the allowlisted official binary and verifies its SHA-256 digest. |
 | `Velociraptor/03_setup_velociraptor.py` | Generates self-signed server, endpoint-client, and API-client configurations. |
@@ -76,7 +76,7 @@ The Sentroxis Velociraptor page uses the same-origin development proxy route `/v
 
 ## Recovery and safety
 
-If a previous configuration exists, use `./Velociraptor/install.py` after confirming the fresh-state prompt, or run `./Velociraptor/00_run_all_setup.py --force` with a valid Task 01 identity. If an interrupted binary download exists, the installation-file step resumes it only after HTTP range support is confirmed and always performs the final SHA-256 check.
+If a previous configuration exists, use `./install.py` after confirming the fresh-state prompt, or run `./Velociraptor/00_run_all_setup.py --force` with a valid Task 01 identity. If an interrupted binary download exists, the installation-file step resumes it only after HTTP range support is confirmed and always performs the final SHA-256 check.
 
 All generated YAML files are owner-readable on POSIX systems. Do not print or commit `server.config.yaml`, `client.config.yaml`, or `api.config.yaml`.
 

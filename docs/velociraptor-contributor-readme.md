@@ -12,7 +12,7 @@ The end-user experience is staged through the unified installer. The user clones
 
 ```text
 1. Clone Sentroxis-Copilot.
-2. Run ./Velociraptor/install.py.
+2. Run ./install.py.
 3. Create the fresh Sentroxis web-login account when prompted.
 4. Select Install Wazuh, Install Velociraptor, or Exit.
 5. Run ./startup.sh after the selected infrastructure is configured.
@@ -72,7 +72,7 @@ The Wazuh installer owns generated files under `.wazuh/single-node/`, including 
 The Velociraptor installation files are under `Velociraptor/`:
 
 ```text
-Velociraptor/install.py
+install.py
 Velociraptor/00_run_all_setup.py
 Velociraptor/01_installation_files.py
 Velociraptor/03_setup_velociraptor.py
@@ -142,7 +142,7 @@ Do not expose a Wazuh password, Velociraptor password, private key, client confi
 The current setup entry points are:
 
 ```text
-./Velociraptor/install.py       # fresh sign-up plus Wazuh/Velociraptor/Exit menu
+./install.py                    # fresh sign-up plus Wazuh/Velociraptor/Exit menu
 sudo ./wazuh_installation.sh    # Wazuh-only workflow when selected
 ./startup.sh                    # starts configured Sentroxis and Velociraptor services
 ```
@@ -211,4 +211,4 @@ backend/runtime/velociraptor/
 
 Before considering Velociraptor work complete, document the exact setup command, required operator inputs, generated files, ports, authentication method, TLS behavior, service start/stop behavior, readiness checks, failure recovery, and cleanup procedure. Add frontend and backend tests, preserve Wazuh behavior, and update the main README only after the Velociraptor workflow is stable.
 
-The final user-facing README should state that `Velociraptor/install.py` creates the fresh web-login account and presents the explicit Wazuh/Velociraptor/Exit menu. It must continue to identify Wazuh as an independent boundary and explain that `startup.sh` starts already-configured application services.
+The final user-facing README should state that root-level `install.py` creates the fresh web-login account and presents the explicit Wazuh/Velociraptor/Exit menu. It must continue to identify Wazuh as an independent boundary and explain that `startup.sh` starts already-configured application services.

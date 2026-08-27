@@ -2,9 +2,9 @@
 """Unified Sentroxis installer entry point.
 
 The installer creates a fresh local web-login account once, then offers an
-installation menu. Plaintext passwords are held only in process memory and are
-passed to the Velociraptor runner through standard input, never through a file
-or command-line argument.
+installation menu. The Sentroxis password is passed to the Velociraptor runner
+through standard input and to the Wazuh installer through a protected temporary
+environment file; secrets are never placed in command-line arguments.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 VELO_DIR = ROOT / "Velociraptor"

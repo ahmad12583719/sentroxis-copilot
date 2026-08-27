@@ -18,7 +18,11 @@ def load_script(name: str, filename: str):
 
 
 installation_script = load_script("sentroxis_installation_files", "01_installation_files.py")
-installer_script = load_script("sentroxis_unified_installer", "install.py")
+installer_spec = importlib.util.spec_from_file_location("sentroxis_unified_installer", SCRIPTS_DIR.parent / "install.py")
+assert installer_spec and installer_spec.loader
+installer_script = importlib.util.module_from_spec(installer_spec)
+sys.modules["sentroxis_unified_installer"] = installer_script
+installer_spec.loader.exec_module(installer_script)
 setup_script = load_script("sentroxis_setup_velociraptor", "03_setup_velociraptor.py")
 runner_script = load_script("sentroxis_run_all_setup", "00_run_all_setup.py")
 
