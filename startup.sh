@@ -14,6 +14,19 @@ VELOCIRAPTOR_CONFIG="$VELOCIRAPTOR_DIR/server.config.yaml"
 VELOCIRAPTOR_LOG="$VELOCIRAPTOR_DIR/velociraptor-server.log"
 VELOCIRAPTOR_PID="$VELOCIRAPTOR_DIR/velociraptor-server.pid"
 VELOCIRAPTOR_STARTED_PID=""
+VELOCIRAPTOR_REUSED_PID=""
+
+find_running_velociraptor() {
+  local pid args
+  while read -r pid args; do
+    [[ -z "$pid" || "$pid" == "$$" ]] && continue
+    if [[ "$args" == *"$VELOCIRAPTOR_BIN"* && "$args" == *"--config $VELOCIRAPTOR_CONFIG"* && "$args" == *" frontend"* ]] && kill -0 "$pid" 2>/dev/null; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+  done < <(ps -eo pid=,args=)
+  return 1
+}
 
 prepare_velociraptor_log_directory() {
   local output_directory
@@ -34,20 +47,41 @@ start_velociraptor() {
   if ! prepare_velociraptor_log_directory; then
     return 0
   fi
+  local existing_pid
+  existing_pid="$(find_running_velociraptor || true)"
+  if [[ -n "$existing_pid" ]]; then
+    VELOCIRAPTOR_REUSED_PID="$existing_pid"
+    printf '%s\n' "$existing_pid" > "$VELOCIRAPTOR_PID"
+    chmod 600 "$VELOCIRAPTOR_PID"
+    printf '==> Velociraptor server already running (PID %s); reusing it\n' "$existing_pid"
+    return 0
+  fi
   rm -f "$VELOCIRAPTOR_PID"
   printf '==> Starting project-local Velociraptor server\n'
-  "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend -v >> "$VELOCIRAPTOR_LOG" 2>&1 &
+  printf '    Command: %s --config %s frontend -v\n' "$VELOCIRAPTOR_BIN" "$VELOCIRAPTOR_CONFIG"
+  (cd "$VELOCIRAPTOR_DIR" && exec "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend -v) >> "$VELOCIRAPTOR_LOG" 2>&1 &
   VELOCIRAPTOR_STARTED_PID="$!"
   printf '%s\n' "$VELOCIRAPTOR_STARTED_PID" > "$VELOCIRAPTOR_PID"
   chmod 600 "$VELOCIRAPTOR_PID"
-  sleep 1
+  local attempt
+  for attempt in 1 2 3 4 5 6 7 8; do
+    if kill -0 "$VELOCIRAPTOR_STARTED_PID" 2>/dev/null; then
+      printf '==> Velociraptor server started (PID %s); GUI status is available in the Velociraptor dashboard.\n' "$VELOCIRAPTOR_STARTED_PID"
+      return 0
+    fi
+    sleep 1
+  done
   if ! kill -0 "$VELOCIRAPTOR_STARTED_PID" 2>/dev/null; then
     printf 'WARNING: Velociraptor server exited during startup; inspect: %s\n' "$VELOCIRAPTOR_LOG" >&2
+    if [[ -f "$VELOCIRAPTOR_LOG" ]]; then
+      printf '%s\n' '--- Velociraptor startup log (last 30 lines) ---' >&2
+      tail -n 30 "$VELOCIRAPTOR_LOG" >&2 || true
+      printf '%s\n' '--- end Velociraptor startup log ---' >&2
+    fi
     rm -f "$VELOCIRAPTOR_PID"
     VELOCIRAPTOR_STARTED_PID=""
     return 0
   fi
-  printf '==> Velociraptor server started (PID %s); GUI status is available in the Velociraptor dashboard.\n' "$VELOCIRAPTOR_STARTED_PID"
 }
 
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
@@ -120,6 +154,9 @@ git diff --check
 printf '\n==> All validation checks passed. Starting development servers\n'
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
+  if [[ -n "$VELOCIRAPTOR_STARTED_PID" ]]; then
+    kill "$VELOCIRAPTOR_STARTED_PID" 2>/dev/null || true
+  fi
   rm -f "$VELOCIRAPTOR_PID"
 }
 trap cleanup EXIT INT TERM
