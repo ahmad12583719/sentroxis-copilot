@@ -78,3 +78,21 @@ Generated server and client YAML files contain deployment-sensitive material. On
 
 [1]: https://docs.velociraptor.app/docs/deployment/quickstart/ "Velociraptor Quickstart Guide"
 [2]: https://docs.velociraptor.app/downloads/ "Velociraptor Downloads and verification"
+
+
+## Local server dashboard
+
+`startup.sh` no longer installs, requires, or starts Wazuh. Wazuh remains an optional external integration; the application starts without it and displays its existing integration state when configured.
+
+The **Velociraptor** page now shows the local server status, configuration path, log path, fixed frontend port, and selected GUI port. After `server.config.yaml` has been generated, select **Start local server** and explicitly confirm the prompt. Sentroxis runs only the verified project-local binary using the generated configuration:
+
+```bash
+<project>/backend/runtime/velociraptor/velociraptor \
+  --config <project>/backend/runtime/velociraptor/server.config.yaml frontend -v
+```
+
+The status panel refreshes automatically and offers a separate explicit stop control. On POSIX hosts, the service retains its PID in `backend/runtime/velociraptor/velociraptor-server.pid` and validates that the process still belongs to the generated local configuration before treating it as running.
+
+When the server is running, the right-hand half-page panel embeds the configured Velociraptor GUI URL. An **Open separately** link is also provided because browser certificate warnings or a GUI framing policy can prevent an embedded self-signed page from loading. The server log is written to `backend/runtime/velociraptor/velociraptor-server.log`.
+
+If starting the server reports that its logging directory cannot be created, regenerate the configuration with a directory under your home folder, such as `~/.sentroxis/velociraptor`, rather than a privileged path such as `/opt/velociraptor`.

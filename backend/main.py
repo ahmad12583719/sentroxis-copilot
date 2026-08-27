@@ -53,6 +53,7 @@ from backend.core.models import (
     VelociraptorCatalog,
     VelociraptorRunRequest,
     VelociraptorRunResponse,
+    VelociraptorServerStatusResponse,
     VelociraptorWizardInput,
     VelociraptorWizardOutput,
     VelociraptorWizardStartRequest,
@@ -480,6 +481,25 @@ def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: 
     )
 
 
+@app.get("/api/velociraptor/status", response_model=VelociraptorServerStatusResponse)
+def get_velociraptor_server_status(principal: Principal = Depends(get_principal)) -> VelociraptorServerStatusResponse:
+    _ = principal
+    try:
+        installation = velociraptor_setup.load_installation()
+    except FileNotFoundError:
+        return VelociraptorServerStatusResponse(
+            configured=False,
+            running=False,
+            message="Velociraptor is not prepared yet. Download and configure the verified local binary first.",
+        )
+    details = velociraptor_setup.server_details(installation)
+    message = "Velociraptor server is running." if details["running"] else (
+        "Configuration is ready; start the local server when approved." if details["configured"]
+        else "The verified binary is ready; generate server.config.yaml before starting the server."
+    )
+    return VelociraptorServerStatusResponse(**details, message=message)
+
+
 @app.post("/api/velociraptor/run", response_model=VelociraptorRunResponse)
 def run_velociraptor_server(request: VelociraptorRunRequest, principal: Principal = Depends(get_principal)) -> VelociraptorRunResponse:
     require_role(principal, "analyst", "admin")
@@ -490,16 +510,19 @@ def run_velociraptor_server(request: VelociraptorRunRequest, principal: Principa
         pid = velociraptor_setup.run_server(installation, request.confirm_run)
     except PermissionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, OSError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    running, pid = velociraptor_setup.server_status()
-    audit = save_audit(principal, "velociraptor.server.started", str(pid), {"platform": request.platform.value, "approval": "explicit"})
+    details = velociraptor_setup.server_details(installation)
+    audit = save_audit(principal, "velociraptor.server.started", str(details["pid"]), {"platform": request.platform.value, "approval": "explicit"})
     return VelociraptorRunResponse(
-        running=running,
-        pid=pid,
-        command_preview=installation.server_command_preview,
-        config_path=installation.config_path,
-        message="Velociraptor server process started from the verified binary and generated configuration.",
+        running=details["running"],
+        pid=details["pid"],
+        command_preview=details["command_preview"],
+        config_path=details["config_path"],
+        gui_url=details["gui_url"],
+        gui_port=details["gui_port"],
+        log_path=details["log_path"],
+        message="Velociraptor server process started from the verified project-local binary and generated configuration.",
         audit_id=audit.id,
     )
 
@@ -513,9 +536,19 @@ def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> V
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Velociraptor has not been prepared")
     velociraptor_setup.stop_server()
-    running, pid = velociraptor_setup.server_status()
-    audit = save_audit(principal, "velociraptor.server.stopped", str(pid or "unknown"), {"approval": "explicit"})
-    return VelociraptorRunResponse(running=running, pid=pid, command_preview=installation.server_command_preview, config_path=installation.config_path, message="Velociraptor server process stopped.", audit_id=audit.id)
+    details = velociraptor_setup.server_details(installation)
+    audit = save_audit(principal, "velociraptor.server.stopped", str(details["pid"] or "unknown"), {"approval": "explicit"})
+    return VelociraptorRunResponse(
+        running=details["running"],
+        pid=details["pid"],
+        command_preview=details["command_preview"],
+        config_path=details["config_path"],
+        gui_url=details["gui_url"],
+        gui_port=details["gui_port"],
+        log_path=details["log_path"],
+        message="Velociraptor server process stopped.",
+        audit_id=audit.id,
+    )
 
 
 @app.get("/api/wazuh/overview")

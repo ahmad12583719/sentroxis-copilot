@@ -4,31 +4,9 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
-WAZUH_DIR="${WAZUH_HOME:-$ROOT_DIR/.wazuh}"
-WAZUH_COMPOSE="$WAZUH_DIR/single-node/docker-compose.yml"
-WAZUH_OVERRIDE="$WAZUH_DIR/single-node/docker-compose.sentroxis.yml"
-run_privileged() {
-  if [[ $EUID -eq 0 ]]; then
-    "$@"
-  else
-    sudo "$@"
-  fi
-}
-
-start_wazuh() {
-  if [[ "${SENTROXIS_SKIP_WAZUH:-0}" == "1" ]]; then
-    printf '==> Skipping Wazuh startup because SENTROXIS_SKIP_WAZUH=1\n'
-    return
-  fi
-  [[ -f "$WAZUH_COMPOSE" && -f "$WAZUH_OVERRIDE" ]] || {
-    printf '%s\n' 'ERROR: Wazuh is not installed or has no Sentroxis proxy configuration. Run: sudo ./wazuh_installation.sh' >&2
-    exit 1
-  }
-  printf '==> Starting installed Wazuh services\n'
-  run_privileged docker compose -f "$WAZUH_COMPOSE" -f "$WAZUH_OVERRIDE" up -d
-}
-
-start_wazuh
+# Wazuh is an optional external integration. This startup script does not
+# install, require, or start Wazuh services. Configure its API variables only
+# when Wazuh telemetry is available for this deployment.
 
 if ! grep -q '^pydantic>=2.12,<3$' backend/requirements.txt; then
   printf 'ERROR: This checkout has the pre-Python-3.14 dependency manifest. Run: git pull origin main\n' >&2
@@ -75,7 +53,7 @@ if [[ -f "$ROOT_DIR/runtime/wazuh-api.env" ]]; then
   source "$ROOT_DIR/runtime/wazuh-api.env"
   set +a
 else
-  printf 'WARNING: runtime/wazuh-api.env is missing; Wazuh widgets will report a credential configuration error.\n' >&2
+  printf '==> Wazuh integration is optional and not configured; continuing without Wazuh telemetry.\n'
 fi
 
 printf '\n==> Running backend tests\n'
@@ -93,7 +71,7 @@ npm run build
 cd "$ROOT_DIR"
 
 printf '\n==> Running shell and whitespace checks\n'
-bash -n start.sh startup.sh wazuh_installation.sh
+bash -n start.sh startup.sh
 git diff --check
 
 printf '\n==> All validation checks passed. Starting development servers\n'
@@ -106,5 +84,5 @@ PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --rel
 cd frontend
 VITE_HTTPS_KEY="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.key" VITE_HTTPS_CERT="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.crt" npm run dev -- --host 0.0.0.0 &
 cd "$ROOT_DIR"
-printf 'Backend:  http://localhost:8000\nFrontend: https://localhost:5173\nWazuh:    https://localhost/\nPress Ctrl+C to stop both servers.\n'
+printf 'Backend:  http://localhost:8000\nFrontend: https://localhost:5173\nWazuh:    optional external integration\nPress Ctrl+C to stop both servers.\n'
 wait

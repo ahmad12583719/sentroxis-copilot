@@ -102,6 +102,7 @@ class VelociraptorSetupService:
         self.sessions: dict[str, WizardSession] = {}
         self.server_process: subprocess.Popen[bytes] | None = None
         self.server_command: list[str] | None = None
+        self.server_pid_path = self.runtime_dir / "velociraptor-server.pid"
 
     @staticmethod
     def detect_host_platform() -> VelociraptorPlatform | None:
@@ -183,7 +184,7 @@ class VelociraptorSetupService:
         config_path = self.runtime_dir / "server.config.yaml"
         executable = str(target)
         command_preview = f"{executable} config generate -i"
-        server_command_preview = f"{executable} --config {config_path} frontend"
+        server_command_preview = f"{executable} --config {config_path} frontend -v"
         installation = VelociraptorInstallation(
             platform=platform,
             version=asset.version,
@@ -251,6 +252,14 @@ class VelociraptorSetupService:
 
         normalized_datastore = str(Path(datastore_path).expanduser())
         normalized_logs = str(Path(log_path).expanduser()) if log_path else str(Path(normalized_datastore) / "logs")
+        try:
+            Path(normalized_datastore).mkdir(parents=True, exist_ok=True)
+            Path(normalized_logs).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise ValueError(
+                "Datastore or logging directory cannot be created. Choose a user-writable path, "
+                "such as a directory under your home folder."
+            ) from exc
         protocol = "wss" if use_websocket else "https"
         frontend_url = f"{protocol}://{frontend_hostname}:{DEFAULT_FRONTEND_PORT}/"
         salt = secrets.token_bytes(32)
@@ -458,6 +467,84 @@ class VelociraptorSetupService:
         if session.process.poll() is None:
             os.killpg(os.getpgid(session.process.pid), signal.SIGTERM) if os.name == "posix" else session.process.terminate()
 
+    @staticmethod
+    def _read_config_value(config_path: Path, section: str, key: str) -> str | None:
+        """Read a simple scalar in a generated YAML section without loading secrets."""
+        in_section = False
+        section_heading = re.compile(rf"^{re.escape(section)}:\s*(?:#.*)?$")
+        heading = re.compile(r"^[A-Za-z][A-Za-z0-9_]*:\s*(?:#.*)?$")
+        value_line = re.compile(rf"^\s+{re.escape(key)}\s*:\s*(.+?)\s*(?:#.*)?$")
+        try:
+            lines = config_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            if section_heading.match(line):
+                in_section = True
+                continue
+            if in_section and heading.match(line):
+                break
+            if in_section:
+                match = value_line.match(line)
+                if match:
+                    return match.group(1).strip().strip("'\"")
+        return None
+
+    def server_details(self, installation: VelociraptorInstallation) -> dict[str, Any]:
+        """Return safe process and GUI metadata for the authenticated dashboard."""
+        config_path = Path(installation.config_path)
+        running, pid = self.server_status()
+        gui_port_text = self._read_config_value(config_path, "GUI", "bind_port")
+        try:
+            gui_port = int(gui_port_text) if gui_port_text else None
+        except ValueError:
+            gui_port = None
+        gui_url = self._read_config_value(config_path, "GUI", "public_url")
+        log_path = self.runtime_dir / "velociraptor-server.log"
+        command = self.server_command or [str(Path(installation.binary_path)), "--config", str(config_path), "frontend", "-v"]
+        return {
+            "configured": config_path.is_file(),
+            "running": running,
+            "pid": pid,
+            "platform": installation.platform,
+            "command_preview": " ".join(command),
+            "config_path": str(config_path),
+            "frontend_port": DEFAULT_FRONTEND_PORT,
+            "gui_port": gui_port,
+            "gui_url": gui_url,
+            "log_path": str(log_path),
+        }
+
+    def _ensure_logging_directory(self, config_path: Path) -> None:
+        logging_directory = self._read_config_value(config_path, "Logging", "output_directory")
+        if not logging_directory:
+            return
+        try:
+            Path(logging_directory).expanduser().mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise OSError(
+                f"Velociraptor logging directory cannot be created: {logging_directory}. "
+                "Choose a user-writable datastore/log path and regenerate server.config.yaml."
+            ) from exc
+
+    def _stored_server_pid(self) -> int | None:
+        try:
+            pid = int(self.server_pid_path.read_text(encoding="utf-8").strip())
+            return pid if pid > 1 else None
+        except (OSError, ValueError):
+            return None
+
+    def _is_current_server_pid(self, pid: int, config_path: Path) -> bool:
+        """Confirm a persisted PID still belongs to this local Velociraptor config."""
+        if os.name != "posix":
+            return False
+        proc_cmdline = Path(f"/proc/{pid}/cmdline")
+        try:
+            command = proc_cmdline.read_bytes().decode("utf-8", errors="replace")
+            return "velociraptor" in command and str(config_path) in command and "frontend" in command
+        except OSError:
+            return False
+
     def run_server(self, installation: VelociraptorInstallation, confirm_run: bool) -> int:
         if not confirm_run:
             raise PermissionError("Explicit server start confirmation is required")
@@ -465,22 +552,40 @@ class VelociraptorSetupService:
         config_path = Path(installation.config_path)
         if not binary.is_file() or not config_path.is_file():
             raise FileNotFoundError("Verified binary and generated config are required")
-        if self.server_process and self.server_process.poll() is None:
-            return self.server_process.pid
-        command = [str(binary), "--config", str(config_path), "frontend"]
+        running, existing_pid = self.server_status()
+        if running and existing_pid:
+            return existing_pid
+        self._ensure_logging_directory(config_path)
+        command = [str(binary), "--config", str(config_path), "frontend", "-v"]
         log_path = self.runtime_dir / "velociraptor-server.log"
         log_file = log_path.open("ab")
         self.server_process = subprocess.Popen(command, cwd=self.runtime_dir, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=os.name == "posix")
         self.server_command = command
+        self.server_pid_path.write_text(f"{self.server_process.pid}\n", encoding="utf-8")
+        if os.name == "posix":
+            self.server_pid_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return self.server_process.pid
 
     def server_status(self) -> tuple[bool, int | None]:
-        running = bool(self.server_process and self.server_process.poll() is None)
-        return running, self.server_process.pid if running and self.server_process else None
+        if self.server_process and self.server_process.poll() is None:
+            return True, self.server_process.pid
+        stored_pid = self._stored_server_pid()
+        if stored_pid:
+            try:
+                installation = self.load_installation()
+                if self._is_current_server_pid(stored_pid, Path(installation.config_path)):
+                    return True, stored_pid
+            except FileNotFoundError:
+                pass
+        self.server_pid_path.unlink(missing_ok=True)
+        return False, None
 
     def stop_server(self) -> None:
-        if self.server_process and self.server_process.poll() is None:
+        running, pid = self.server_status()
+        if running and pid:
             if os.name == "posix":
-                os.killpg(os.getpgid(self.server_process.pid), signal.SIGTERM)
-            else:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            elif self.server_process and self.server_process.poll() is None:
                 self.server_process.terminate()
+        self.server_process = None
+        self.server_pid_path.unlink(missing_ok=True)

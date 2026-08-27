@@ -352,5 +352,26 @@ class VelociraptorRunResponse(BaseModel):
     pid: int | None
     command_preview: str
     config_path: str
+    gui_url: str | None = None
+    gui_port: int | None = Field(default=None, ge=1, le=65535)
+    log_path: str | None = None
     message: str
     audit_id: str
+
+
+class VelociraptorServerStatusResponse(BaseModel):
+    """Current state of the locally configured Velociraptor frontend process."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    configured: bool
+    running: bool
+    pid: int | None = None
+    platform: VelociraptorPlatform | None = None
+    command_preview: str | None = None
+    config_path: str | None = None
+    frontend_port: int = Field(default=8010, ge=1, le=65535)
+    gui_port: int | None = Field(default=None, ge=1, le=65535)
+    gui_url: str | None = None
+    log_path: str | None = None
+    message: str

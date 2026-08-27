@@ -84,7 +84,7 @@ def main() -> int:
 
     print("\n==> Step 3/3: create self-signed Velociraptor server and client configuration")
     server_os = ask("Server operating system (linux/windows/darwin)", "linux").lower()
-    datastore_default = "/opt/velociraptor" if server_os == "linux" else "C:\\Velociraptor"
+    datastore_default = str(Path.home() / ".sentroxis" / "velociraptor") if server_os == "linux" else "C:\\Velociraptor"
     datastore = ask("Datastore directory", datastore_default)
     logs = ask("Logs directory", str(Path(datastore) / "logs"))
     certificate_years = ask("Internal certificate lifetime in years (1/2/10)", "1")

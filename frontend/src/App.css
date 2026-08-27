@@ -195,3 +195,34 @@ button:active { transform: scale(.98); }
 .reserved-status { padding: 6px 9px; border: 1px solid #4c416e; border-radius: 5px; color: #b6a8ee; background: #211d35; font: 9px 'DM Mono'; }
 @media (max-width: 900px) { .agent-management-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 460px; } }
 @media (max-width: 650px) { .wazuh-summary-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 390px; }.agent-grid { grid-template-columns: 1fr; }.topnav { gap: 10px; margin-left: 18px; overflow-x: auto; }.topbar { padding: 0 16px; }.environment-pill { display: none; } }
+
+/* Velociraptor local server dashboard */
+.velociraptor-server-grid { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr); gap: 16px; margin-bottom: 16px; }
+.velociraptor-server-control, .velociraptor-gui-panel { min-height: 430px; }
+.velociraptor-server-control > p { color: var(--muted, #809a9d); line-height: 1.55; margin: 0 0 15px; }
+.server-status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid #31474b; border-radius: 999px; color: #93a9a8; font: 8px 'DM Mono'; text-transform: uppercase; letter-spacing: .06em; }
+.server-status-pill i, .connection-badge.muted i { width: 6px; height: 6px; border-radius: 50%; background: #777f80; display: inline-block; }
+.server-status-pill.online i { background: #2df7b5; box-shadow: 0 0 8px rgba(45, 247, 181, .75); }
+.server-status-pill.online { color: #8ed6bd; border-color: rgba(45, 247, 181, .35); }
+.velociraptor-status-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+.velociraptor-status-list div { border: 1px solid #20383d; background: #0a171a; border-radius: 6px; padding: 9px; }
+.velociraptor-status-list dt { color: #628084; font: 8px 'DM Mono'; text-transform: uppercase; letter-spacing: .08em; }
+.velociraptor-status-list dd { color: #d5e7e5; margin: 5px 0 0; font: 11px 'DM Mono'; overflow-wrap: anywhere; }
+.velociraptor-status-list small { color: #72b6a1; font-size: 8px; }
+.velociraptor-command { align-items: flex-start; background: #071215; border: 1px solid #214047; border-radius: 6px; color: #9bb9b8; display: flex; gap: 8px; margin: 13px 0 10px; padding: 10px; }
+.velociraptor-command svg { flex: 0 0 auto; margin-top: 1px; color: #2df7b5; }
+.velociraptor-command code { font: 9px/1.5 'DM Mono'; overflow-wrap: anywhere; }
+.runtime-path { color: #6f9295 !important; font: 8px/1.5 'DM Mono'; overflow-wrap: anywhere; }
+.runtime-path strong { color: #a3c3c1; }
+.velociraptor-control-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.velociraptor-status-error { color: #f5adad !important; font: 9px/1.5 'DM Mono'; margin-top: 12px !important; }
+.velociraptor-gui-panel { display: flex; flex-direction: column; overflow: hidden; }
+.velociraptor-gui-panel .panel-heading { align-items: center; }
+.velociraptor-frame-wrap { background: #071114; border: 1px solid #213a40; border-radius: 7px; flex: 1; min-height: 340px; overflow: hidden; }
+.velociraptor-server-frame { background: #fff; border: 0; display: block; height: 100%; min-height: 340px; width: 100%; }
+.velociraptor-gui-empty { align-items: center; background: radial-gradient(circle at 50% 25%, rgba(45, 247, 181, .07), transparent 45%), #071114; border: 1px dashed #2d4a50; border-radius: 7px; color: #7e999b; display: flex; flex: 1; flex-direction: column; justify-content: center; min-height: 340px; padding: 24px; text-align: center; }
+.velociraptor-gui-empty svg { color: #3f7970; margin-bottom: 12px; }
+.velociraptor-gui-empty strong { color: #c6dbd9; font-size: 13px; }
+.velociraptor-gui-empty p { font-size: 10px; line-height: 1.5; margin: 8px 0 12px; max-width: 290px; }
+@media (max-width: 1000px) { .velociraptor-server-grid { grid-template-columns: 1fr; }.velociraptor-server-control, .velociraptor-gui-panel { min-height: auto; }.velociraptor-frame-wrap, .velociraptor-gui-empty { min-height: 300px; } }
+@media (max-width: 560px) { .velociraptor-status-list { grid-template-columns: 1fr; }.velociraptor-control-actions .button { width: 100%; justify-content: center; } }

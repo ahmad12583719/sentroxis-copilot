@@ -114,8 +114,8 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
     result = service.generate_self_signed_config(
         installation,
         server_os="linux",
-        datastore_path="/srv/velo-data",
-        log_path="/srv/velo-logs",
+        datastore_path=str(runtime_dir / "data"),
+        log_path=str(runtime_dir / "logs"),
         certificate_years=10,
         use_registry_writeback=True,
         frontend_hostname="192.168.1.20",
@@ -160,7 +160,7 @@ def test_generate_self_signed_config_rejects_existing_config(tmp_path):
         service.generate_self_signed_config(
             installation,
             server_os="linux",
-            datastore_path="/srv/velo-data",
+            datastore_path=str(runtime_dir / "data"),
             log_path=None,
             certificate_years=1,
             use_registry_writeback=False,
@@ -170,3 +170,77 @@ def test_generate_self_signed_config_rejects_existing_config(tmp_path):
             admin_username="analyst@example.com",
             password_confirmation="strong-test-password",
         )
+
+
+def test_server_details_exposes_local_gui_status_and_fixed_command(tmp_path):
+    runtime_dir = tmp_path / "runtime"
+    service = VelociraptorSetupService(runtime_dir)
+    binary = runtime_dir / "velociraptor"
+    binary.write_bytes(b"verified-test-binary")
+    config_path = runtime_dir / "server.config.yaml"
+    log_directory = runtime_dir / "logs"
+    config_path.write_text(
+        "Logging:\n"
+        f"  output_directory: {log_directory}\n"
+        "Frontend:\n"
+        "  bind_port: 8010\n"
+        "GUI:\n"
+        "  bind_port: 9443\n"
+        "  public_url: https://127.0.0.1:9443/app/index.html\n",
+        encoding="utf-8",
+    )
+    installation = VelociraptorInstallation(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        binary_path=str(binary),
+        filename="velociraptor-v0.77.2-linux-amd64",
+        sha256="0" * 64,
+        verified=True,
+        command_preview="velociraptor config generate -i",
+        config_path=str(config_path),
+        server_command_preview="velociraptor --config server.config.yaml frontend -v",
+    )
+
+    details = service.server_details(installation)
+
+    assert details["configured"] is True
+    assert details["running"] is False
+    assert details["frontend_port"] == 8010
+    assert details["gui_port"] == 9443
+    assert details["gui_url"] == "https://127.0.0.1:9443/app/index.html"
+    assert details["command_preview"].endswith("--config " + str(config_path) + " frontend -v")
+
+
+def test_run_server_prepares_logging_directory_and_uses_verbose_mode(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    runtime_dir = tmp_path / "runtime"
+    service = VelociraptorSetupService(runtime_dir)
+    binary = runtime_dir / "velociraptor"
+    binary.write_bytes(b"verified-test-binary")
+    config_path = runtime_dir / "server.config.yaml"
+    log_directory = runtime_dir / "nested" / "logs"
+    config_path.write_text(f"Logging:\n  output_directory: {log_directory}\n", encoding="utf-8")
+    installation = VelociraptorInstallation(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        binary_path=str(binary),
+        filename="velociraptor-v0.77.2-linux-amd64",
+        sha256="0" * 64,
+        verified=True,
+        command_preview="velociraptor config generate -i",
+        config_path=str(config_path),
+        server_command_preview="velociraptor --config server.config.yaml frontend -v",
+    )
+    captured = {}
+
+    def fake_popen(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return SimpleNamespace(pid=4321, poll=lambda: None)
+
+    monkeypatch.setattr("backend.core.velociraptor_setup.subprocess.Popen", fake_popen)
+
+    assert service.run_server(installation, confirm_run=True) == 4321
+    assert log_directory.is_dir()
+    assert captured["command"] == [str(binary), "--config", str(config_path), "frontend", "-v"]

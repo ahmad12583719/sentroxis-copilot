@@ -139,7 +139,8 @@ def main() -> int:
         return 1
 
     server_os = args.server_os or ask("Server operating system (linux/windows/darwin)", "linux").lower()
-    datastore_path = args.datastore_path or ask("Datastore directory", "/opt/velociraptor" if server_os == "linux" else "C:\\Velociraptor")
+    default_datastore = str(Path.home() / ".sentroxis" / "velociraptor") if server_os == "linux" else "C:\\Velociraptor"
+    datastore_path = args.datastore_path or ask("Datastore directory", default_datastore)
     log_path = args.log_path if args.log_path is not None else ask("Logs directory", str(Path(datastore_path) / "logs"))
     certificate_years = args.certificate_years or int(ask("Internal certificate lifetime in years", "1"))
     frontend_host = args.frontend_host or ask("Public frontend DNS name or server IP")

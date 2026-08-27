@@ -125,6 +125,12 @@ def test_setup_wizard_rejects_insecure_or_credential_embedded_endpoints(client):
 
 
 def test_velociraptor_api_catalog_and_approval_gates(client):
+    status = client.get("/api/velociraptor/status")
+    assert status.status_code == 200
+    assert status.json()["configured"] is False
+    assert status.json()["running"] is False
+    assert "not prepared" in status.json()["message"]
+
     catalog = client.get("/api/velociraptor/catalog")
     assert catalog.status_code == 200
     assert catalog.json()["release"] == "0.77.2"
