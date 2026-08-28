@@ -39,17 +39,20 @@ flowchart LR
 | Windows AMD64 | Install Docker Desktop with WSL 2 enabled, enable integration for the selected Linux distribution, then run the installer inside WSL 2 | Uses Docker Desktop through the WSL 2 Docker integration; it does not install a separate Docker daemon inside WSL. |
 | macOS, Git Bash, ordinary PowerShell, ARM64, or unsupported Linux | Use a supported Linux VM or supported WSL 2 environment | Stops with a platform-specific prerequisite message. |
 
-### 2.2 Wazuh endpoint enrollment workflow
+### 2.2 Wazuh endpoint visibility
 
-The Agent Management page now includes a dedicated Wazuh endpoint section above the unchanged Velociraptor package workflow. It mirrors the native Wazuh Dashboard deployment wizard: select the endpoint package and architecture, enter the Manager address, skip the optional agent-name step so the endpoint hostname is used, then run the generated installation and start commands [3]. The optional repository-update disabling step is intentionally omitted.
+Wazuh agent deployment is performed through the native Wazuh Dashboard or the official Wazuh endpoint procedure. The Sentroxis Endpoint Management tab is intentionally reserved for the Velociraptor contributor’s package workflow and no longer contains Wazuh deployment controls.
 
-| Step | Operator action | System behavior |
-|---|---|---|
-| 1. Select package | Select RPM/DEB, MSI, Intel macOS, or Apple silicon macOS. | The frontend sends the selected package identifier to FastAPI. |
-| 2. Enter Manager address | Enter the Wazuh Manager IP address or FQDN. | FastAPI validates the address and prepares OS-specific deployment variables. |
-| 3. Skip optional agent name | Leave agent naming untouched. | The Wazuh endpoint uses its hostname as the agent name, matching the native wizard’s default. |
-| 4. Install and start | Run the displayed install command, followed by the displayed start command on the endpoint. | The package configures communication with the Manager; Sentroxis does not execute endpoint commands remotely. |
-| 5. Verify | Select **Refresh** after the endpoint starts. | The backend reads the live Manager inventory and displays the endpoint when it is reporting. |
+The Sentroxis Wazuh tab is the single custom view for live Wazuh endpoint visibility. It reads the current agent inventory from the Wazuh Manager API, retains only records whose Manager status is explicitly `active`, and displays those agents in the machine telemetry cards and active-agent count. The view refreshes automatically every 15 seconds and also provides a manual refresh action. A disconnected or removed agent therefore disappears from the custom Sentroxis cards, while an agent that becomes active again appears on the next refresh.
+
+| Lifecycle state | Sentroxis behavior |
+|---|---|
+| Agent is active in Wazuh | Display it in the Wazuh tab’s count and machine cards. |
+| Agent is disconnected, pending, or removed | Exclude it from the custom active-agent inventory. |
+| Agent becomes active again | Include it again automatically on the next polling cycle. |
+| No active agents or Wazuh is unavailable | Display no machine cards and show the live connection error; no demo data is substituted. |
+
+The backend deployment-command route remains available as a server-side API capability but is not exposed in the Endpoint Management interface. Endpoint Management remains Velociraptor-only from the user interface perspective.
 
 ### 2.3 Network endpoints
 
@@ -63,7 +66,7 @@ The Agent Management page now includes a dedicated Wazuh endpoint section above 
 | Wazuh Indexer | `https://127.0.0.1:9200` | `https://wazuh.indexer:9200` | Stores/searches indexed Wazuh alerts. |
 | Wazuh agent transport | TCP 1514/1515 and UDP 514 | Manager listeners | Carries agent events and enrollment/communication traffic. |
 
-The Manager API is bound to localhost by default. The Indexer and Dashboard are reached by the backend through host-published ports for this single-machine MVP. The endpoint deployment route is `POST /api/wazuh/agents/deploy`; it requires an authenticated analyst/admin session and an explicit confirmation flag. The browser receives only the new agent’s enrollment instructions; the Wazuh API token and service credentials remain in FastAPI. In a production deployment, use a private network, trusted CA certificates, least-privilege service accounts, and tighter firewall policy. Wazuh documents the Docker single-node architecture and password procedures in its official deployment guidance [1] [2].
+The Manager API is bound to localhost by default. The Indexer and Dashboard are reached by the backend through host-published ports for this single-machine MVP. The Wazuh tab uses the protected `GET /api/wazuh/overview` route for live agents and alerts; the browser receives normalized telemetry only, while Wazuh API tokens and service credentials remain in FastAPI. In a production deployment, use a private network, trusted CA certificates, least-privilege service accounts, and tighter firewall policy. Wazuh documents the Docker single-node architecture and password procedures in its official deployment guidance [1] [2].
 
 ## 3. Installation pipeline
 

@@ -1,10 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Archive, CheckCircle2, Copy, Download, FileKey2, Info, Loader2, Monitor, Package, RefreshCw, ShieldCheck, Terminal, Waypoints } from 'lucide-react'
+import { Archive, CheckCircle2, Download, FileKey2, Info, Loader2, Package, ShieldCheck, Terminal, Waypoints } from 'lucide-react'
 import { authRequest } from '../auth/AuthProvider'
-
-function CommandLine({ command, onCopy }) {
-  return <div className="wazuh-command-row"><code>{command}</code><button className="icon-button" type="button" onClick={() => onCopy(command)} title="Copy command" aria-label="Copy command"><Copy size={14} /></button></div>
-}
 
 const targets = [
   { id: 'linux-amd64', label: 'Linux amd64', description: 'Executable client with shell commands for interactive or service deployment.' },
@@ -17,11 +13,6 @@ export default function Agents() {
   const [busy, setBusy] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [wazuhAgents, setWazuhAgents] = useState([])
-  const [wazuhDeployment, setWazuhDeployment] = useState(null)
-  const [wazuhBusy, setWazuhBusy] = useState(false)
-  const [wazuhPackage, setWazuhPackage] = useState('deb-amd64')
-  const [wazuhManagerAddress, setWazuhManagerAddress] = useState('10.5.89.68')
 
   const refresh = async () => {
     try {
@@ -35,21 +26,7 @@ export default function Agents() {
       setError(reason.message || 'Unable to read Velociraptor package status.')
     }
   }
-  const loadWazuhAgents = () => authRequest('/api/wazuh/overview').then((data) => setWazuhAgents(data.agents || [])).catch((reason) => setError(reason.message || 'Unable to read Wazuh agent status.'))
-  useEffect(() => {
-    refresh(); loadWazuhAgents()
-    const refreshTimer = window.setInterval(loadWazuhAgents, 15000)
-    return () => window.clearInterval(refreshTimer)
-  }, [])
-
-  const generateWazuhCommands = async (event) => {
-    event.preventDefault(); setWazuhBusy(true); setWazuhDeployment(null); setMessage(''); setError('')
-    try {
-      const result = await authRequest('/api/wazuh/agents/deploy', { method: 'POST', body: JSON.stringify({ package: wazuhPackage, manager_address: wazuhManagerAddress.trim(), confirm_generate: true }) })
-      setWazuhDeployment(result); setMessage('Wazuh deployment commands are ready for the selected endpoint package.')
-    } catch (reason) { setError(reason.message || 'Wazuh deployment command generation failed.') } finally { setWazuhBusy(false) }
-  }
-  const copyCommand = (command) => navigator.clipboard?.writeText(command).then(() => setMessage('Command copied to clipboard.'))
+  useEffect(() => { refresh() }, [])
 
   const generateBundle = async (platform) => {
     setBusy(platform); setMessage(''); setError('')
@@ -65,20 +42,8 @@ export default function Agents() {
   const ready = Boolean(status?.configured && status?.api_config_ready)
   return <main className="page-shell subpage-shell endpoint-page">
     <section className="page-heading compact-heading">
-      <div><p className="eyebrow"><Waypoints size={13} /> Endpoint operations <span className="slash">/</span> Wazuh &amp; Velociraptor</p><h1>Prepare your <em>endpoints.</em></h1><p className="lede">Configure Wazuh agents from the Manager API, or generate controlled Velociraptor client packages for this workspace.</p></div>
+      <div><p className="eyebrow"><Waypoints size={13} /> Endpoint operations <span className="slash">/</span> Velociraptor</p><h1>Prepare your <em>endpoints.</em></h1><p className="lede">Generate controlled Velociraptor client packages for this workspace.</p></div>
       <span className={`connection-badge ${ready ? '' : 'muted'}`}><i /> {ready ? 'Package-ready' : 'Setup required'}</span>
-    </section>
-
-    <section className="panel wazuh-endpoint-panel">
-      <div className="panel-heading"><div><p className="eyebrow"><Monitor size={13} /> Wazuh endpoint operations</p><h2>Deploy a new agent</h2><p className="endpoint-lede">Follow the same package, Manager address, install, and start flow as the native Wazuh Dashboard.</p></div><span className="connection-badge"><i /> Manager API</span></div>
-      <form className="wazuh-wizard-form" onSubmit={generateWazuhCommands}>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>01</span><div><strong>Select the package to download and install</strong><small>Choose the operating system and architecture of the endpoint.</small></div></div><div className="wazuh-package-grid">{[['rpm-amd64','RPM amd64'],['rpm-aarch64','RPM aarch64'],['deb-amd64','DEB amd64'],['deb-aarch64','DEB aarch64'],['msi','MSI 32/64 bits'],['macos-intel','Intel'],['macos-apple-silicon','Apple silicon']].map(([value, label]) => <label className={`wazuh-package-option ${wazuhPackage === value ? 'selected' : ''}`} key={value}><input type="radio" name="wazuh-package" value={value} checked={wazuhPackage === value} onChange={() => { setWazuhPackage(value); setWazuhDeployment(null) }} /><span>{label}</span></label>)}</div><small className="wazuh-doc-note">For additional systems and architectures, consult the <a href="https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html" target="_blank" rel="noreferrer">official Wazuh documentation</a>.</small></div>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>02</span><div><strong>Server address</strong><small>This is the address the agent uses to communicate with the Wazuh Manager.</small></div></div><label className="wazuh-address-field"><span>Assign a server address</span><input required value={wazuhManagerAddress} onChange={(event) => { setWazuhManagerAddress(event.target.value); setWazuhDeployment(null) }} placeholder="10.5.89.68 or wazuh.example.com" /></label></div>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>03</span><div><strong>Run the following command to download and install the agent</strong><small>{wazuhDeployment ? 'Run this command on the selected endpoint with administrator/root privileges.' : 'Select a package and enter the Manager address first.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.install_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>04</span><div><strong>Start the agent</strong><small>{wazuhDeployment ? 'Run this after installation completes.' : 'The start command will appear after package and address selection.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.start_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
-        <button className="button primary wazuh-generate-button" type="submit" disabled={wazuhBusy || !wazuhManagerAddress.trim()}>{wazuhBusy ? <Loader2 className="spin" size={15} /> : <Terminal size={15} />} {wazuhBusy ? 'Preparing commands…' : 'Generate deployment commands'}</button>
-      </form>
-      <div className="wazuh-agent-list"><div className="panel-heading"><div><p className="eyebrow">Live inventory</p><h3>Agents reporting into Wazuh</h3></div><button className="button secondary" type="button" onClick={loadWazuhAgents}><RefreshCw size={14} /> Refresh</button></div>{wazuhAgents.length ? <div className="wazuh-agent-table">{wazuhAgents.map((agent) => <div className="wazuh-agent-row" key={agent.id || agent.name}><span className="status-check ready"><CheckCircle2 size={14} /></span><strong>{agent.name || agent.id}</strong><span>{agent.ip || 'IP unavailable'}</span><span>{agent.status || 'unknown'}</span><small>{agent.version || 'version unavailable'}</small></div>)}</div> : <p className="empty-state compact-empty">No Wazuh agents are reporting yet. Install and start an endpoint agent, then refresh.</p>}</div>
     </section>
 
     <section className="panel endpoint-status-panel">
