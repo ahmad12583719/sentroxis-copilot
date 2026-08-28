@@ -21,7 +21,7 @@ export default function Agents() {
   const [wazuhDeployment, setWazuhDeployment] = useState(null)
   const [wazuhBusy, setWazuhBusy] = useState(false)
   const [wazuhPackage, setWazuhPackage] = useState('deb-amd64')
-  const [wazuhManagerAddress, setWazuhManagerAddress] = useState(window.location.hostname || '127.0.0.1')
+  const [wazuhManagerAddress, setWazuhManagerAddress] = useState('10.5.89.68')
 
   const refresh = async () => {
     try {
@@ -36,7 +36,11 @@ export default function Agents() {
     }
   }
   const loadWazuhAgents = () => authRequest('/api/wazuh/overview').then((data) => setWazuhAgents(data.agents || [])).catch((reason) => setError(reason.message || 'Unable to read Wazuh agent status.'))
-  useEffect(() => { refresh(); loadWazuhAgents() }, [])
+  useEffect(() => {
+    refresh(); loadWazuhAgents()
+    const refreshTimer = window.setInterval(loadWazuhAgents, 15000)
+    return () => window.clearInterval(refreshTimer)
+  }, [])
 
   const generateWazuhCommands = async (event) => {
     event.preventDefault(); setWazuhBusy(true); setWazuhDeployment(null); setMessage(''); setError('')
@@ -70,9 +74,8 @@ export default function Agents() {
       <form className="wazuh-wizard-form" onSubmit={generateWazuhCommands}>
         <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>01</span><div><strong>Select the package to download and install</strong><small>Choose the operating system and architecture of the endpoint.</small></div></div><div className="wazuh-package-grid">{[['rpm-amd64','RPM amd64'],['rpm-aarch64','RPM aarch64'],['deb-amd64','DEB amd64'],['deb-aarch64','DEB aarch64'],['msi','MSI 32/64 bits'],['macos-intel','Intel'],['macos-apple-silicon','Apple silicon']].map(([value, label]) => <label className={`wazuh-package-option ${wazuhPackage === value ? 'selected' : ''}`} key={value}><input type="radio" name="wazuh-package" value={value} checked={wazuhPackage === value} onChange={() => { setWazuhPackage(value); setWazuhDeployment(null) }} /><span>{label}</span></label>)}</div><small className="wazuh-doc-note">For additional systems and architectures, consult the <a href="https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html" target="_blank" rel="noreferrer">official Wazuh documentation</a>.</small></div>
         <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>02</span><div><strong>Server address</strong><small>This is the address the agent uses to communicate with the Wazuh Manager.</small></div></div><label className="wazuh-address-field"><span>Assign a server address</span><input required value={wazuhManagerAddress} onChange={(event) => { setWazuhManagerAddress(event.target.value); setWazuhDeployment(null) }} placeholder="10.5.89.68 or wazuh.example.com" /></label></div>
-        <div className="wazuh-wizard-section disabled"><div className="wazuh-wizard-title"><span>03</span><div><strong>Optional settings</strong><small>Agent naming is skipped. Wazuh uses the endpoint hostname by default.</small></div></div><span className="wazuh-skipped">Skipped</span></div>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>04</span><div><strong>Run the following command to download and install the agent</strong><small>{wazuhDeployment ? 'Run this command on the selected endpoint with administrator/root privileges.' : 'Select a package and enter the Manager address first.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.install_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
-        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>05</span><div><strong>Start the agent</strong><small>{wazuhDeployment ? 'Run this after installation completes.' : 'The start command will appear after package and address selection.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.start_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
+        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>03</span><div><strong>Run the following command to download and install the agent</strong><small>{wazuhDeployment ? 'Run this command on the selected endpoint with administrator/root privileges.' : 'Select a package and enter the Manager address first.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.install_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
+        <div className="wazuh-wizard-section"><div className="wazuh-wizard-title"><span>04</span><div><strong>Start the agent</strong><small>{wazuhDeployment ? 'Run this after installation completes.' : 'The start command will appear after package and address selection.'}</small></div></div>{wazuhDeployment ? <CommandLine command={wazuhDeployment.start_command} onCopy={copyCommand} /> : <p className="wazuh-disabled-note">Please select the operating system and server address.</p>}</div>
         <button className="button primary wazuh-generate-button" type="submit" disabled={wazuhBusy || !wazuhManagerAddress.trim()}>{wazuhBusy ? <Loader2 className="spin" size={15} /> : <Terminal size={15} />} {wazuhBusy ? 'Preparing commands…' : 'Generate deployment commands'}</button>
       </form>
       <div className="wazuh-agent-list"><div className="panel-heading"><div><p className="eyebrow">Live inventory</p><h3>Agents reporting into Wazuh</h3></div><button className="button secondary" type="button" onClick={loadWazuhAgents}><RefreshCw size={14} /> Refresh</button></div>{wazuhAgents.length ? <div className="wazuh-agent-table">{wazuhAgents.map((agent) => <div className="wazuh-agent-row" key={agent.id || agent.name}><span className="status-check ready"><CheckCircle2 size={14} /></span><strong>{agent.name || agent.id}</strong><span>{agent.ip || 'IP unavailable'}</span><span>{agent.status || 'unknown'}</span><small>{agent.version || 'version unavailable'}</small></div>)}</div> : <p className="empty-state compact-empty">No Wazuh agents are reporting yet. Install and start an endpoint agent, then refresh.</p>}</div>

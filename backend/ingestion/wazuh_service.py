@@ -169,7 +169,18 @@ class WazuhService:
                             headers={"Authorization": f"Bearer {token}"},
                         )
                         response.raise_for_status()
-                        agents = response.json().get("data", {}).get("affected_items", [])
+                        raw_agents = response.json().get("data", {}).get("affected_items", [])
+                        agents = [
+                            {
+                                **agent,
+                                "id": str(agent.get("id", "")),
+                                "name": agent.get("name") or str(agent.get("id", "")),
+                                "status": agent.get("status") or "active",
+                                "lastKeepAlive": agent.get("lastKeepAlive") or agent.get("last_keep_alive"),
+                            }
+                            for agent in raw_agents
+                            if isinstance(agent, dict) and str(agent.get("status", "active")).lower() == "active"
+                        ]
                     else:
                         errors.append("Wazuh API authentication returned no token")
                 except (httpx.HTTPError, ValueError) as exc:
