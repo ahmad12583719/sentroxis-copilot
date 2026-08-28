@@ -51,6 +51,7 @@ from backend.core.models import (
     VelociraptorPrepareResponse,
     VelociraptorConfigGenerateRequest,
     VelociraptorConfigGenerateResponse,
+    VelociraptorBundleResponse,
     VelociraptorCatalog,
     VelociraptorRunRequest,
     VelociraptorRunResponse,
@@ -481,6 +482,38 @@ def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: 
         config_path=str(session.config_path),
         config_ready=session.config_path.is_file(),
     )
+
+
+@app.post("/api/velociraptor/endpoints/bundle", response_model=VelociraptorBundleResponse)
+def build_velociraptor_endpoint_bundle(request: VelociraptorPrepareRequest, principal: Principal = Depends(get_principal)) -> VelociraptorBundleResponse:
+    require_role(principal, "analyst", "admin")
+    if not request.confirm_download:
+        raise HTTPException(status_code=400, detail="Explicit endpoint bundle confirmation is required")
+    if request.platform.value not in {"linux-amd64", "windows-amd64"}:
+        raise HTTPException(status_code=422, detail="Endpoint bundles are currently available for Linux amd64 and Windows amd64")
+    try:
+        bundle = velociraptor_setup.build_endpoint_bundle(request.platform)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    audit = save_audit(principal, "velociraptor.endpoint_bundle.created", bundle["filename"], {"platform": bundle["platform"], "includes_msi": str(bundle["includes_msi"])})
+    return VelociraptorBundleResponse(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode")}, message="Endpoint bundle created from verified/generated Velociraptor artifacts.", audit_id=audit.id)
+
+
+@app.get("/api/velociraptor/endpoints/bundle/download/{platform}")
+def download_velociraptor_endpoint_bundle(platform: str, principal: Principal = Depends(get_principal)) -> FileResponse:
+    _ = principal
+    if platform not in {"linux-amd64", "windows-amd64"}:
+        raise HTTPException(status_code=404, detail="Endpoint bundle not found")
+    try:
+        version = velociraptor_setup.load_installation().version
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Velociraptor has not been prepared") from exc
+    bundle_path = velociraptor_setup.runtime_dir / "bundles" / f"sentroxis-velociraptor-{platform}-v{version}.zip"
+    if not bundle_path.is_file():
+        raise HTTPException(status_code=404, detail="Build the endpoint bundle before downloading it")
+    return FileResponse(bundle_path, media_type="application/zip", filename=bundle_path.name, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/velociraptor/api-config/download")

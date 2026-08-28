@@ -1,14 +1,58 @@
 import { useEffect, useState } from 'react'
-import { Copy, Monitor, PackagePlus, ShieldCheck, Terminal, Users, Waypoints } from 'lucide-react'
+import { Archive, CheckCircle2, Download, FileKey2, Info, Loader2, Package, ShieldCheck, Terminal, Waypoints } from 'lucide-react'
 import { authRequest } from '../auth/AuthProvider'
 
+const targets = [
+  { id: 'linux-amd64', label: 'Linux amd64', description: 'Executable client with shell commands for interactive or service deployment.' },
+  { id: 'windows-amd64', label: 'Windows amd64', description: 'Executable client plus an official MSI, repacked with the generated client configuration when supported.' },
+]
+
 export default function Agents() {
-  const [alerts, setAlerts] = useState([])
-  const [agents, setAgents] = useState([])
-  const [platform, setPlatform] = useState('Linux')
-  const [copied, setCopied] = useState(false)
-  useEffect(() => { authRequest('/api/wazuh/overview').then((data) => { const liveAlerts = data.alerts || []; setAlerts(liveAlerts); setAgents((data.agents || []).map((agent) => ({ ...agent, name: agent.name || agent.id, alerts: liveAlerts.filter((alert) => alert.agent_name === agent.name).length, lastSeen: agent.lastKeepAlive }))) }).catch(() => {}) }, [])
-  const command = platform === 'Windows' ? 'Invoke-WebRequest -Uri https://packages.wazuh.com/4.x/windows/wazuh-agent-4.7.5-1.msi -OutFile wazuh-agent.msi' : 'curl -sO https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb'
-  const copyCommand = async () => { await navigator.clipboard?.writeText(command); setCopied(true); window.setTimeout(() => setCopied(false), 1600) }
-  return <main className="page-shell subpage-shell"><section className="page-heading compact-heading"><div><p className="eyebrow"><Users size={13} /> Fleet control <span className="slash">/</span> Wazuh agent management</p><h1>Manage your <em>fleet.</em></h1><p className="lede">Prepare Wazuh enrollment and monitor the machines already represented in authorized telemetry.</p></div><span className="connection-badge"><i /> {agents.length} discovered agents</span></section><section className="agent-management-grid"><section className="panel enrollment-panel"><div className="panel-heading"><div><p className="eyebrow">Wazuh agents</p><h2>Create an enrollment package</h2></div><PackagePlus size={18} /></div><div className="form-body"><label className="field-label" htmlFor="agent-platform">Target platform</label><select id="agent-platform" value={platform} onChange={(event) => setPlatform(event.target.value)}><option>Linux</option><option>Windows</option><option>macOS</option></select><p className="form-help">The manager address and registration key are intentionally not embedded in the browser. Complete enrollment through your approved Wazuh administrator workflow.</p><div className="command-box"><div><Terminal size={15} /><code>{command}</code></div><button className="icon-button" onClick={copyCommand} aria-label="Copy enrollment command"><Copy size={15} /></button></div>{copied && <p className="copy-confirm">Enrollment command copied.</p>}<button className="button primary" disabled><ShieldCheck size={15} /> Generate signed package <span className="coming-soon">Coming soon</span></button></div></section><section className="panel reserved-panel"><div className="panel-heading"><div><p className="eyebrow">Reserved integration</p><h2>Velociraptor agents</h2></div><Waypoints size={18} /></div><div className="reserved-content"><div className="reserved-icon"><Waypoints size={24} /></div><strong>Managed by the Velociraptor workstream</strong><p>This section is intentionally a placeholder. Velociraptor installation, enrollment, and controls remain owned by the assigned contributor.</p><span className="reserved-status">Not implemented in this Wazuh change</span></div></section></section><section className="panel fleet-panel"><div className="panel-heading"><div><p className="eyebrow">Machine telemetry</p><h2>Wazuh agent inventory</h2></div><span className="table-meta"><Monitor size={14} /> {agents.length ? 'Telemetry available' : 'No agents reported'}</span></div>{agents.length ? <div className="agent-grid">{agents.map((agent) => <article className="agent-card" key={agent.name}><div className="agent-card-top"><span className="agent-icon"><Monitor size={17} /></span><span className="agent-health"><i /> reporting</span></div><h3>{agent.name}</h3><p>{agent.ip || 'IP unavailable'}</p><div className="agent-card-meta"><span><strong>{agent.alerts}</strong> alerts</span><span>{agent.lastSeen ? new Date(agent.lastSeen).toLocaleString() : 'No recent sync'}</span></div></article>)}</div> : <div className="empty-state agent-empty"><Monitor size={20} /><p>No Wazuh agents are reporting yet. Install and enroll an agent to see machine data here.</p></div>}</section></main>
+  const [status, setStatus] = useState(null)
+  const [bundles, setBundles] = useState({})
+  const [busy, setBusy] = useState('')
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+
+  const refresh = () => authRequest('/api/velociraptor/status').then(setStatus).catch((reason) => setError(reason.message || 'Unable to read Velociraptor status.'))
+  useEffect(() => { refresh() }, [])
+
+  const generateBundle = async (platform) => {
+    setBusy(platform); setMessage(''); setError('')
+    try {
+      const result = await authRequest('/api/velociraptor/endpoints/bundle', { method: 'POST', body: JSON.stringify({ platform, confirm_download: true }) })
+      setBundles((current) => ({ ...current, [platform]: result }))
+      setMessage(`${result.filename} is ready to download.`)
+    } catch (reason) {
+      setError(reason.message || 'Bundle generation failed. Generate the server, client, and API configs first.')
+    } finally { setBusy('') }
+  }
+
+  const ready = Boolean(status?.configured && status?.api_config_ready)
+  return <main className="page-shell subpage-shell endpoint-page">
+    <section className="page-heading compact-heading">
+      <div><p className="eyebrow"><Waypoints size={13} /> Endpoint operations <span className="slash">/</span> Velociraptor</p><h1>Prepare your <em>endpoints.</em></h1><p className="lede">Generate controlled client packages from the verified Velociraptor release and the configurations created for this workspace.</p></div>
+      <span className={`connection-badge ${ready ? '' : 'muted'}`}><i /> {ready ? 'Package-ready' : 'Setup required'}</span>
+    </section>
+
+    <section className="panel endpoint-status-panel">
+      <div className="panel-heading"><div><p className="eyebrow">Readiness</p><h2>Velociraptor package prerequisites</h2></div><ShieldCheck size={18} /></div>
+      <div className="endpoint-status-body">
+        <div className="endpoint-status-item"><span className={status?.configured ? 'status-check ready' : 'status-check'}><CheckCircle2 size={15} /></span><div><strong>Server configuration</strong><small>{status?.configured ? status.config_path : 'Generate server.config.yaml from the Velociraptor setup workflow.'}</small></div></div>
+        <div className="endpoint-status-item"><span className={status?.api_config_ready ? 'status-check ready' : 'status-check'}><FileKey2 size={15} /></span><div><strong>Client and API configurations</strong><small>{status?.api_config_ready ? 'Generated and available to authorized analysts.' : 'Generate client.config.yaml and api.config.yaml before packaging.'}</small></div></div>
+        <div className="endpoint-status-note"><Info size={15} /><span>The ZIP contains private API key material. Keep it restricted, transfer it through an approved channel, and do not commit it to source control.</span></div>
+      </div>
+    </section>
+
+    <section className="endpoint-targets" aria-label="Endpoint package targets">
+      {targets.map((target) => { const bundle = bundles[target.id]; return <section className="panel endpoint-target-card" key={target.id}>
+        <div className="panel-heading"><div><p className="eyebrow">Client target</p><h2>{target.label}</h2></div><Package size={18} /></div>
+        <div className="endpoint-card-body"><p>{target.description}</p><div className="endpoint-contents"><span><Archive size={14} /> Official binary</span><span><FileKey2 size={14} /> client.config.yaml</span><span><FileKey2 size={14} /> api.config.yaml</span><span><Terminal size={14} /> README.md</span>{target.id === 'windows-amd64' && <span><Package size={14} /> MSI when available</span>}</div>
+          {bundle ? <div className="endpoint-download-row"><div><strong>{bundle.filename}</strong><small>{bundle.includes_msi ? `Windows MSI: ${bundle.msi_mode}` : 'ZIP bundle generated'}</small></div><a className="button primary" href={bundle.download_url}><Download size={15} /> Download ZIP</a></div> : <button className="button primary" onClick={() => generateBundle(target.id)} disabled={!ready || Boolean(busy)}>{busy === target.id ? <Loader2 className="spin" size={15} /> : <Archive size={15} />} {busy === target.id ? 'Building bundle…' : 'Generate ZIP package'}</button>}
+        </div>
+      </section> })}
+    </section>
+    {message && <p className="endpoint-feedback success"><CheckCircle2 size={14} /> {message}</p>}
+    {error && <p className="endpoint-feedback error"><Info size={14} /> {error}</p>}
+  </main>
 }

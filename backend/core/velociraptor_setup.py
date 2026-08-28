@@ -17,6 +17,7 @@ import stat
 import subprocess
 import threading
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -201,6 +202,103 @@ class VelociraptorSetupService:
         if os.name == "posix":
             self.installation_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return installation
+
+    def _download_verified_asset(self, asset: VelociraptorAsset, target: Path) -> Path:
+        """Download an allowlisted release asset into a private runtime cache."""
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_file() and self._sha256(target).lower() == asset.sha256.lower():
+            return target
+        temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.part")
+        digest = hashlib.sha256()
+        try:
+            request = Request(asset.download_url, headers={"User-Agent": "Sentroxis-Copilot/0.1"})
+            with urlopen(request, timeout=90) as response, temporary.open("wb") as destination:
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    digest.update(chunk)
+                    destination.write(chunk)
+            if digest.hexdigest().lower() != asset.sha256.lower():
+                raise ValueError(f"SHA-256 verification failed for {asset.filename}")
+            os.replace(temporary, target)
+            if asset.platform != VelociraptorPlatform.windows_amd64:
+                target.chmod(target.stat().st_mode | stat.S_IXUSR)
+            return target
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def build_endpoint_bundle(self, platform: VelociraptorPlatform) -> dict[str, Any]:
+        """Build a password-free endpoint ZIP from verified/generated artifacts."""
+        if platform not in {VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64}:
+            raise ValueError("Endpoint bundles are currently available for Linux amd64 and Windows amd64")
+        installation = self.load_installation()
+        config_path = self.runtime_dir / "server.config.yaml"
+        client_config_path = self.runtime_dir / "client.config.yaml"
+        api_config_path = self.runtime_dir / "api.config.yaml"
+        for required in (config_path, client_config_path, api_config_path):
+            if not required.is_file():
+                raise FileNotFoundError("Generate server, client, and API configurations before building endpoint bundles")
+
+        asset = self._asset(platform)
+        cache_path = self.runtime_dir / "bundle-cache" / asset.filename
+        binary_path = self._download_verified_asset(asset, cache_path)
+        bundle_dir = self.runtime_dir / "bundles"
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        bundle_name = f"sentroxis-velociraptor-{platform.value}-v{installation.version}.zip"
+        archive_path = bundle_dir / bundle_name
+        with tempfile.TemporaryDirectory(prefix=f"bundle-{platform.value}-", dir=bundle_dir) as staging:
+            root = Path(staging)
+            shutil_binary = root / ("velociraptor.exe" if platform == VelociraptorPlatform.windows_amd64 else "velociraptor")
+            shutil_binary.write_bytes(binary_path.read_bytes())
+            if platform == VelociraptorPlatform.linux_amd64:
+                shutil_binary.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+            (root / "client.config.yaml").write_bytes(client_config_path.read_bytes())
+            (root / "api.config.yaml").write_bytes(api_config_path.read_bytes())
+            msi_mode: str | None = None
+            if platform == VelociraptorPlatform.windows_amd64:
+                msi_asset = f"velociraptor-v{installation.version}-windows-amd64.msi"
+                msi_url = f"https://github.com/Velocidex/velociraptor/releases/download/v{installation.version}/{msi_asset}"
+                official_msi = root / "velociraptor-official.msi"
+                try:
+                    with urlopen(Request(msi_url, headers={"User-Agent": "Sentroxis-Copilot/0.1"}), timeout=90) as response, official_msi.open("wb") as destination:
+                        while True:
+                            chunk = response.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            destination.write(chunk)
+                    repacked = root / "velociraptor-windows.msi"
+                    repack = subprocess.run(
+                        [str(installation.binary_path), "config", "repack", "--msi", str(official_msi), str(client_config_path), str(repacked)],
+                        cwd=self.runtime_dir, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                        timeout=120, check=False,
+                    )
+                    if repack.returncode == 0 and repacked.is_file() and repacked.stat().st_size:
+                        official_msi.unlink(missing_ok=True)
+                        msi_mode = "repacked"
+                    else:
+                        official_msi.rename(root / "velociraptor-windows-official.msi")
+                        msi_mode = "official"
+                except (OSError, subprocess.TimeoutExpired):
+                    official_msi.unlink(missing_ok=True)
+            readme = root / "README.md"
+            readme.write_text(self._bundle_readme(platform, installation.version, msi_mode), encoding="utf-8")
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for item in sorted(root.iterdir()):
+                    archive.write(item, item.name)
+        if os.name == "posix":
+            archive_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+        return {"platform": platform.value, "version": installation.version, "filename": bundle_name, "path": str(archive_path), "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}", "includes_msi": msi_mode is not None, "msi_mode": msi_mode}
+
+    @staticmethod
+    def _bundle_readme(platform: VelociraptorPlatform, version: str, msi_mode: str | None) -> str:
+        if platform == VelociraptorPlatform.windows_amd64:
+            install = ("Run PowerShell as Administrator and execute: `msiexec /i .\\velociraptor-windows.msi /qn`" if msi_mode == "repacked" else "The official MSI is included as `velociraptor-windows-official.msi`, but it has a placeholder configuration. Copy `client.config.yaml` beside the installed executable before starting the service. For a configured install, use the included executable and config directly.")
+            run = "`& 'C:\\Program Files\\Velociraptor\\velociraptor.exe' --config 'C:\\Program Files\\Velociraptor\\client.config.yaml' client -v`"
+        else:
+            install = "Make the binary executable: `chmod 700 ./velociraptor`"
+            run = "`sudo ./velociraptor --config ./client.config.yaml client -v`"
+        return f"""# Sentroxis Velociraptor endpoint bundle\n\nVersion: {version}\n\nThis package contains the official, SHA-256-verified Velociraptor client binary, the generated client configuration, the local API configuration, and the Windows installer when available. The API configuration contains private key material; keep this archive restricted and never commit it to source control.\n\n## Install\n\n{install}\n\n## Run interactively\n\n{run}\n\nThe client connects to the server URL embedded in `client.config.yaml`. The first connection enrolls the endpoint. Use an approved service-management workflow for persistent deployment, and remove this README/package from shared locations after installation.\n"""
 
     def load_installation(self) -> VelociraptorInstallation:
         if not self.installation_path.is_file():

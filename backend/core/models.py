@@ -360,6 +360,19 @@ class VelociraptorRunResponse(BaseModel):
     audit_id: str
 
 
+class VelociraptorBundleResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    version: str
+    filename: str
+    download_url: str
+    includes_msi: bool = False
+    msi_mode: Literal["repacked", "official"] | None = None
+    message: str
+    audit_id: str
+
+
 class VelociraptorServerStatusResponse(BaseModel):
     """Current state of the locally configured Velociraptor frontend process."""
 

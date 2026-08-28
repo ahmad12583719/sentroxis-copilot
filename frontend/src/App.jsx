@@ -12,7 +12,7 @@ import './App.css'
 const tabItems = [
   { key: 'wazuh', label: 'Wazuh', icon: Activity },
   { key: 'velociraptor', label: 'Velociraptor', icon: Waypoints },
-  { key: 'agents', label: 'Agent management', icon: Users },
+  { key: 'agents', label: 'Endpoints', icon: Users },
   { key: 'ai', label: 'AI co-pilot', icon: Sparkles },
 ]
 

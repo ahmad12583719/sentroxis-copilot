@@ -252,3 +252,51 @@ def test_run_server_prepares_logging_directory_and_uses_verbose_mode(tmp_path, m
     assert service.run_server(installation, confirm_run=True) == 4321
     assert log_directory.is_dir()
     assert captured["command"] == [str(binary), "--config", str(config_path), "frontend", "-v"]
+
+
+def test_build_endpoint_bundle_contains_required_linux_artifacts(tmp_path, monkeypatch):
+    import hashlib
+    from zipfile import ZipFile
+    from backend.core.models import VelociraptorAsset
+
+    runtime_dir = tmp_path / "runtime"
+    service = VelociraptorSetupService(runtime_dir)
+    binary = runtime_dir / "velociraptor"
+    binary.write_bytes(b"verified-client-binary")
+    client = runtime_dir / "client.config.yaml"
+    api = runtime_dir / "api.config.yaml"
+    server = runtime_dir / "server.config.yaml"
+    client.write_text("server_urls:\n  - https://example.test:8010/\n", encoding="utf-8")
+    api.write_text("api_connection_string: local\nprivate_key: generated\n", encoding="utf-8")
+    server.write_text("Frontend:\n  bind_port: 8010\n", encoding="utf-8")
+    installation = VelociraptorInstallation(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        binary_path=str(binary),
+        filename="velociraptor-v0.77.2-linux-amd64",
+        sha256="0" * 64,
+        verified=True,
+        command_preview="velociraptor config generate -i",
+        config_path=str(server),
+        server_command_preview="velociraptor --config server.config.yaml frontend -v",
+    )
+    service.installation_path.write_text(installation.model_dump_json(), encoding="utf-8")
+    cached = runtime_dir / "bundle-cache" / "velociraptor-v0.77.2-linux-amd64"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"official-linux-client")
+    digest = hashlib.sha256(cached.read_bytes()).hexdigest()
+    asset = VelociraptorAsset(
+        platform=VelociraptorPlatform.linux_amd64,
+        version="0.77.2",
+        filename=cached.name,
+        download_url="https://github.com/Velocidex/velociraptor/releases/download/v0.77.2/" + cached.name,
+        sha256=digest,
+    )
+    monkeypatch.setattr(service, "_asset", lambda platform: asset)
+
+    result = service.build_endpoint_bundle(VelociraptorPlatform.linux_amd64)
+
+    with ZipFile(result["path"]) as archive:
+        assert set(archive.namelist()) == {"velociraptor", "client.config.yaml", "api.config.yaml", "README.md"}
+        assert b"strong-test-password" not in archive.read("README.md")
+        assert b"sudo ./velociraptor --config ./client.config.yaml client -v" in archive.read("README.md")

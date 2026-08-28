@@ -3,7 +3,7 @@ import { Bell, LogOut, Menu, Search } from 'lucide-react'
 const navItems = [
   { label: 'Wazuh', key: 'wazuh' },
   { label: 'Velociraptor', key: 'velociraptor' },
-  { label: 'Agent management', key: 'agents' },
+  { label: 'Endpoints', key: 'agents' },
   { label: 'AI co-pilot', key: 'ai' },
 ]
 
