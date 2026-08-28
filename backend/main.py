@@ -63,8 +63,8 @@ from backend.core.models import (
     VelociraptorWizardOutput,
     VelociraptorWizardStartRequest,
     VelociraptorWizardStartResponse,
-    WazuhAgentCreateRequest,
-    WazuhAgentCreateResponse,
+    WazuhAgentDeployRequest,
+    WazuhAgentDeployResponse,
     Source,
     TimelineEvent,
 )
@@ -616,27 +616,17 @@ def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> V
     )
 
 
-@app.post("/api/wazuh/agents/enroll", response_model=WazuhAgentCreateResponse)
-def enroll_wazuh_agent(request: WazuhAgentCreateRequest, principal: Principal = Depends(get_principal)) -> WazuhAgentCreateResponse:
+@app.post("/api/wazuh/agents/deploy", response_model=WazuhAgentDeployResponse)
+def build_wazuh_agent_deployment(request: WazuhAgentDeployRequest, principal: Principal = Depends(get_principal)) -> WazuhAgentDeployResponse:
     require_role(principal, "analyst", "admin")
-    if not request.confirm_create:
-        raise HTTPException(status_code=400, detail="Explicit agent enrollment confirmation is required")
+    if not request.confirm_generate:
+        raise HTTPException(status_code=400, detail="Explicit deployment-command confirmation is required")
     try:
-        result = wazuh.enroll_agent(
-            name=request.name,
-            ip=request.ip,
-            group=request.group,
-            platform=request.platform,
-            manager_address=request.manager_address,
-        )
+        result = wazuh.deployment_commands(request.package, request.manager_address.strip())
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail=f"Wazuh Manager API rejected the enrollment request ({exc.response.status_code})") from exc
-    except (httpx.HTTPError, RuntimeError) as exc:
-        raise HTTPException(status_code=502, detail=f"Wazuh Manager API enrollment failed: {exc}") from exc
-    audit = save_audit(principal, "wazuh.agent.enrolled", result["id"], {"platform": result["platform"], "name": result["name"]})
-    return WazuhAgentCreateResponse(**result, message="Agent created. Run the four endpoint commands on the target machine, then refresh telemetry to verify it is reporting.", audit_id=audit.id)
+    audit = save_audit(principal, "wazuh.agent.deployment_commands.generated", request.package, {"manager_address": request.manager_address})
+    return WazuhAgentDeployResponse(package=request.package, manager_address=request.manager_address.strip(), install_command=result["install_command"], start_command=result["start_command"], message="Run the install command on the endpoint, then run the start command. Sentroxis does not execute endpoint commands remotely.", audit_id=audit.id)
 
 
 @app.get("/api/wazuh/overview")

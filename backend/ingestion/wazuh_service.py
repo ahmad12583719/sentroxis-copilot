@@ -104,6 +104,36 @@ class WazuhService:
             "restart_command": restart_command,
         }
 
+    @staticmethod
+    def deployment_commands(package: str, manager_address: str) -> dict[str, str]:
+        """Build endpoint-local install/start commands without running them."""
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,252}", manager_address):
+            raise ValueError("Manager address must be a hostname or IP address")
+        package_urls = {
+            "deb-amd64": "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb",
+            "deb-aarch64": "https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_arm64.deb",
+            "rpm-amd64": "https://packages.wazuh.com/4.x/yum/wazuh-agent-4.7.5-1.x86_64.rpm",
+            "rpm-aarch64": "https://packages.wazuh.com/4.x/yum/wazuh-agent-4.7.5-1.aarch64.rpm",
+        }
+        if package in package_urls:
+            filename = package_urls[package].rsplit("/", 1)[-1]
+            package_manager = 'dpkg -i' if package.startswith('deb-') else 'rpm -ih'
+            install = f"curl -O {package_urls[package]} && sudo WAZUH_MANAGER={shlex.quote(manager_address)} {package_manager} {filename}"
+            start = "sudo systemctl daemon-reload && sudo systemctl enable wazuh-agent && sudo systemctl start wazuh-agent && sudo systemctl --no-pager status wazuh-agent"
+        elif package == "msi":
+            installer = "wazuh-agent-4.7.5-1.msi"
+            install = f"Invoke-WebRequest -Uri https://packages.wazuh.com/4.x/windows/{installer} -OutFile {installer}; .\\{installer} /q WAZUH_MANAGER=\"{manager_address}\""
+            start = "NET START Wazuh"
+        elif package == "macos-intel":
+            installer = "wazuh-agent-4.7.5-1.intel64.pkg"
+            install = f"curl -O https://packages.wazuh.com/4.x/macos/{installer} && echo \"WAZUH_MANAGER='{manager_address}'\" > /tmp/wazuh_envs && sudo installer -pkg {installer} -target /"
+            start = "sudo /Library/Ossec/bin/wazuh-control start"
+        else:
+            installer = "wazuh-agent-4.7.5-1.arm64.pkg"
+            install = f"curl -O https://packages.wazuh.com/4.x/macos/{installer} && echo \"WAZUH_MANAGER='{manager_address}'\" > /tmp/wazuh_envs && sudo installer -pkg {installer} -target /"
+            start = "sudo /Library/Ossec/bin/wazuh-control start"
+        return {"install_command": install, "start_command": start}
+
     def live_overview(self) -> dict[str, Any]:
         """Return bounded live Manager agents and Indexer alerts.
 

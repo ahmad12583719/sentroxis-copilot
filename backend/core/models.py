@@ -146,29 +146,27 @@ class AuditEvent(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
-class WazuhAgentCreateRequest(BaseModel):
+WazuhAgentPackage = Literal[
+    "rpm-amd64", "rpm-aarch64", "deb-amd64", "deb-aarch64",
+    "msi", "macos-intel", "macos-apple-silicon",
+]
+
+
+class WazuhAgentDeployRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._-]+$")
-    ip: str | None = Field(default=None, max_length=64)
-    group: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9._-]+$")
-    platform: Literal["linux", "windows"] = "linux"
-    manager_address: str | None = Field(default=None, max_length=255)
-    confirm_create: bool = False
+    package: WazuhAgentPackage
+    manager_address: str = Field(min_length=1, max_length=255)
+    confirm_generate: bool = False
 
 
-class WazuhAgentCreateResponse(BaseModel):
+class WazuhAgentDeployResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    id: str
-    name: str
-    key: str
-    platform: Literal["linux", "windows"]
+    package: WazuhAgentPackage
     manager_address: str
     install_command: str
-    enroll_command: str
-    configure_command: str
-    restart_command: str
+    start_command: str
     message: str
     audit_id: str
 
