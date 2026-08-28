@@ -134,7 +134,8 @@ else
 fi
 
 printf '\n==> Running backend tests\n'
-PYTHONPATH="$ROOT_DIR" pytest -q backend/tests
+PYTHONPATH="$ROOT_DIR" timeout 120s backend/.venv/bin/pytest -q backend/tests
+printf '==> Backend tests passed; continuing with frontend validation\n'
 
 printf '\n==> Running frontend lint\n'
 cd frontend
@@ -142,6 +143,7 @@ npm run lint
 
 printf '\n==> Running frontend tests\n'
 npm test -- --run
+printf '==> Frontend tests passed; building frontend\n'
 
 printf '\n==> Building frontend\n'
 npm run build
