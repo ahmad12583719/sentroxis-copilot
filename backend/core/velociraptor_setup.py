@@ -16,7 +16,6 @@ import signal
 import stat
 import subprocess
 import threading
-import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -105,7 +104,6 @@ class VelociraptorSetupService:
         self.server_process: subprocess.Popen[bytes] | None = None
         self.server_command: list[str] | None = None
         self.server_pid_path = self.runtime_dir / "velociraptor-server.pid"
-        self.console_credentials: dict[str, tuple[str, str]] = {}
 
     @staticmethod
     def detect_host_platform() -> VelociraptorPlatform | None:
@@ -292,55 +290,26 @@ class VelociraptorSetupService:
             archive_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return {"platform": platform.value, "version": installation.version, "filename": bundle_name, "path": str(archive_path), "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}", "includes_msi": msi_mode is not None, "msi_mode": msi_mode}
 
-    def _build_bundles_after_server_start(self, installation: VelociraptorInstallation) -> None:
-        """Create packages only after the started process remains alive."""
-        time.sleep(3)
-        running, _ = self.server_status()
-        if not running:
-            return
-        for target in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
-            try:
-                self.build_endpoint_bundle(target, installation=installation)
-            except (FileNotFoundError, OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-                # The status endpoint remains healthy; the next authorized page load can retry.
-                return
-
     def list_endpoint_bundles(self) -> list[dict[str, Any]]:
-        """List saved bundles and lazily create them once the server is live."""
+        """List saved bundles using metadata derived from their filenames."""
         try:
-            installation = self.load_installation()
+            version = self.load_installation().version
         except FileNotFoundError:
             return []
-        version = installation.version
         bundle_dir = self.runtime_dir / "bundles"
-        existing = []
+        result: list[dict[str, Any]] = []
         for platform in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
             filename = f"sentroxis-velociraptor-{platform.value}-v{version}.zip"
-            if (bundle_dir / filename).is_file():
-                existing.append((platform, filename))
-        if len(existing) < 2:
-            running, _ = self.server_status()
-            if running:
-                for target in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
-                    try:
-                        self.build_endpoint_bundle(target, installation=installation)
-                    except (FileNotFoundError, OSError, RuntimeError, ValueError, subprocess.TimeoutExpired):
-                        break
-                existing = []
-                for platform in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
-                    filename = f"sentroxis-velociraptor-{platform.value}-v{version}.zip"
-                    if (bundle_dir / filename).is_file():
-                        existing.append((platform, filename))
-        result: list[dict[str, Any]] = []
-        for platform, filename in existing:
-            result.append({
-                "platform": platform.value,
-                "version": version,
-                "filename": filename,
-                "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}",
-                "includes_msi": platform == VelociraptorPlatform.windows_amd64,
-                "msi_mode": None,
-            })
+            path = bundle_dir / filename
+            if path.is_file():
+                result.append({
+                    "platform": platform.value,
+                    "version": version,
+                    "filename": filename,
+                    "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}",
+                    "includes_msi": platform == VelociraptorPlatform.windows_amd64,
+                    "msi_mode": None,
+                })
         return result
 
     @staticmethod
@@ -352,13 +321,6 @@ class VelociraptorSetupService:
             install = "Make the binary executable: `chmod 700 ./velociraptor`"
             run = "`sudo ./velociraptor --config ./client.config.yaml client -v`"
         return f"""# Sentroxis Velociraptor endpoint bundle\n\nVersion: {version}\n\nThis package contains the official, SHA-256-verified Velociraptor client binary, the generated client configuration, the local API configuration, and the Windows installer when available. The API configuration contains private key material; keep this archive restricted and never commit it to source control.\n\n## Install\n\n{install}\n\n## Run interactively\n\n{run}\n\nThe client connects to the server URL embedded in `client.config.yaml`. The first connection enrolls the endpoint. Use an approved service-management workflow for persistent deployment, and remove this README/package from shared locations after installation.\n"""
-
-    def set_console_credentials(self, username: str, password: str) -> None:
-        """Keep console credentials only in process memory for the current run."""
-        self.console_credentials[username] = (username, password)
-
-    def console_credentials_for(self, username: str) -> tuple[str, str] | None:
-        return self.console_credentials.get(username)
 
     def load_installation(self) -> VelociraptorInstallation:
         if not self.installation_path.is_file():
@@ -525,14 +487,17 @@ class VelociraptorSetupService:
             api_temp = None
             if os.name == "posix":
                 api_config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            self.set_console_credentials(admin_username, password_confirmation)
+            endpoint_bundles = [
+                self.build_endpoint_bundle(target, installation=installation)
+                for target in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64)
+            ]
             return {
                 "config_path": str(config_path),
                 "client_config_path": str(client_config_path),
                 "api_config_path": str(api_config_path),
                 "frontend_url": frontend_url,
                 "admin_username": admin_username,
-                "endpoint_bundles": [],
+                "endpoint_bundles": endpoint_bundles,
             }
         finally:
             # The merge payload contains password-derived material; remove it after use.
@@ -757,7 +722,6 @@ class VelociraptorSetupService:
         self.server_process = subprocess.Popen(command, cwd=self.runtime_dir, stdin=subprocess.DEVNULL, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=os.name == "posix")
         self.server_command = command
         self.server_pid_path.write_text(f"{self.server_process.pid}\n", encoding="utf-8")
-        threading.Thread(target=self._build_bundles_after_server_start, args=(installation,), daemon=True).start()
         if os.name == "posix":
             self.server_pid_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return self.server_process.pid
