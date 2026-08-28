@@ -133,21 +133,26 @@ else
   printf '==> Wazuh integration is optional and not configured; continuing without Wazuh telemetry.\n'
 fi
 
-printf '\n==> Running backend tests\n'
-PYTHONPATH="$ROOT_DIR" timeout 120s backend/.venv/bin/pytest -q backend/tests
-printf '==> Backend tests passed; continuing with frontend validation\n'
+if [[ "${SENTROXIS_RUN_VALIDATION:-0}" == "1" ]]; then
+  printf '\n==> Running backend tests\n'
+  PYTHONPATH="$ROOT_DIR" timeout 120s backend/.venv/bin/pytest -q backend/tests
+  printf '==> Backend tests passed; continuing with frontend validation\n'
 
-printf '\n==> Running frontend lint\n'
-cd frontend
-npm run lint
+  printf '\n==> Running frontend lint\n'
+  cd frontend
+  npm run lint
 
-printf '\n==> Running frontend tests\n'
-npm test -- --run
-printf '==> Frontend tests passed; building frontend\n'
+  printf '\n==> Running frontend tests\n'
+  npm test -- --run
+  printf '==> Frontend tests passed; building frontend\n'
 
-printf '\n==> Building frontend\n'
-npm run build
-cd "$ROOT_DIR"
+  printf '\n==> Building frontend\n'
+  npm run build
+  cd "$ROOT_DIR"
+else
+  printf '\n==> Skipping full validation for development startup\n'
+  printf '    Run SENTROXIS_RUN_VALIDATION=1 ./startup.sh to run backend/frontend tests and build checks.\n'
+fi
 
 printf '\n==> Running shell and whitespace checks\n'
 bash -n start.sh startup.sh
