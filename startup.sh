@@ -158,6 +158,11 @@ bash -n start.sh startup.sh
 git diff --check
 
 printf '\n==> All validation checks passed. Starting development servers\n'
+BACKEND_LOG="$ROOT_DIR/runtime/sentroxis-backend.log"
+FRONTEND_LOG="$ROOT_DIR/runtime/sentroxis-frontend.log"
+mkdir -p "$ROOT_DIR/runtime"
+: > "$BACKEND_LOG"
+: > "$FRONTEND_LOG"
 cleanup() {
   jobs -p | xargs -r kill 2>/dev/null || true
   if [[ -n "$VELOCIRAPTOR_STARTED_PID" ]]; then
@@ -167,9 +172,43 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --reload-dir "$ROOT_DIR/backend" --host 0.0.0.0 --port 8000 &
+PYTHONPATH="$ROOT_DIR" backend/.venv/bin/uvicorn backend.main:app --reload --reload-dir "$ROOT_DIR/backend" --host 0.0.0.0 --port 8000 >> "$BACKEND_LOG" 2>&1 &
+BACKEND_PID="$!"
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -fsS --max-time 2 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    printf 'ERROR: FastAPI stopped during startup. See %s\n' "$BACKEND_LOG" >&2
+    tail -n 40 "$BACKEND_LOG" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+if ! curl -fsS --max-time 2 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+  printf 'ERROR: FastAPI did not become ready on port 8000. See %s\n' "$BACKEND_LOG" >&2
+  tail -n 40 "$BACKEND_LOG" >&2 || true
+  exit 1
+fi
 cd frontend
-VITE_HTTPS_KEY="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.key" VITE_HTTPS_CERT="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.crt" npm run dev -- --host 0.0.0.0 &
+VITE_HTTPS_KEY="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.key" VITE_HTTPS_CERT="$ROOT_DIR/runtime/sentroxis-dev-tls/localhost.crt" npm run dev -- --host 0.0.0.0 >> "$FRONTEND_LOG" 2>&1 &
+FRONTEND_PID="$!"
 cd "$ROOT_DIR"
-printf 'Backend:       http://localhost:8000\nFrontend:      https://localhost:5173\nVelociraptor:  project-local process (see dashboard status)\nWazuh:         optional external integration\nPress Ctrl+C to stop all local processes.\n'
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if curl -kfsS --max-time 2 https://127.0.0.1:5173/ >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$FRONTEND_PID" 2>/dev/null; then
+    printf 'ERROR: Vite stopped during startup. See %s\n' "$FRONTEND_LOG" >&2
+    tail -n 40 "$FRONTEND_LOG" >&2 || true
+    exit 1
+  fi
+  sleep 1
+done
+if ! curl -kfsS --max-time 2 https://127.0.0.1:5173/ >/dev/null 2>&1; then
+  printf 'ERROR: Vite did not become ready on port 5173. See %s\n' "$FRONTEND_LOG" >&2
+  tail -n 40 "$FRONTEND_LOG" >&2 || true
+  exit 1
+fi
+printf 'Backend:       http://localhost:8000 (ready)\nFrontend:      https://localhost:5173 (ready)\nVelociraptor:  project-local process (see dashboard status)\nWazuh:         optional external integration\nLogs:          %s and %s\nPress Ctrl+C to stop all local processes.\n' "$BACKEND_LOG" "$FRONTEND_LOG"
 wait
