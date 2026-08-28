@@ -14,7 +14,18 @@ export default function Agents() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
-  const refresh = () => authRequest('/api/velociraptor/status').then(setStatus).catch((reason) => setError(reason.message || 'Unable to read Velociraptor status.'))
+  const refresh = async () => {
+    try {
+      const [nextStatus, savedBundles] = await Promise.all([
+        authRequest('/api/velociraptor/status'),
+        authRequest('/api/velociraptor/endpoints/bundles'),
+      ])
+      setStatus(nextStatus)
+      setBundles(Object.fromEntries((savedBundles.bundles || []).map((bundle) => [bundle.platform, bundle])))
+    } catch (reason) {
+      setError(reason.message || 'Unable to read Velociraptor package status.')
+    }
+  }
   useEffect(() => { refresh() }, [])
 
   const generateBundle = async (platform) => {

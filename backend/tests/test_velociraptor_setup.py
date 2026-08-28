@@ -100,7 +100,9 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
     captured_merge: dict[str, object] = {}
 
     def fake_run(command, **kwargs):
-        if command[1:3] == ["config", "generate"]:
+        if "repack" in command:
+            Path(command[-1]).write_bytes(b"repacked-msi")
+        elif command[1:3] == ["config", "generate"]:
             captured_merge.update(json.loads(Path(command[-1]).read_text(encoding="utf-8")))
             kwargs["stdout"].write(b"Frontend:\n  bind_port: 8010\n")
         elif command[4] == "client":

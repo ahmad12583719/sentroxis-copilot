@@ -228,11 +228,11 @@ class VelociraptorSetupService:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def build_endpoint_bundle(self, platform: VelociraptorPlatform) -> dict[str, Any]:
+    def build_endpoint_bundle(self, platform: VelociraptorPlatform, installation: VelociraptorInstallation | None = None) -> dict[str, Any]:
         """Build a password-free endpoint ZIP from verified/generated artifacts."""
         if platform not in {VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64}:
             raise ValueError("Endpoint bundles are currently available for Linux amd64 and Windows amd64")
-        installation = self.load_installation()
+        installation = installation or self.load_installation()
         config_path = self.runtime_dir / "server.config.yaml"
         client_config_path = self.runtime_dir / "client.config.yaml"
         api_config_path = self.runtime_dir / "api.config.yaml"
@@ -289,6 +289,28 @@ class VelociraptorSetupService:
         if os.name == "posix":
             archive_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         return {"platform": platform.value, "version": installation.version, "filename": bundle_name, "path": str(archive_path), "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}", "includes_msi": msi_mode is not None, "msi_mode": msi_mode}
+
+    def list_endpoint_bundles(self) -> list[dict[str, Any]]:
+        """List saved bundles using metadata derived from their filenames."""
+        try:
+            version = self.load_installation().version
+        except FileNotFoundError:
+            return []
+        bundle_dir = self.runtime_dir / "bundles"
+        result: list[dict[str, Any]] = []
+        for platform in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
+            filename = f"sentroxis-velociraptor-{platform.value}-v{version}.zip"
+            path = bundle_dir / filename
+            if path.is_file():
+                result.append({
+                    "platform": platform.value,
+                    "version": version,
+                    "filename": filename,
+                    "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}",
+                    "includes_msi": platform == VelociraptorPlatform.windows_amd64,
+                    "msi_mode": None,
+                })
+        return result
 
     @staticmethod
     def _bundle_readme(platform: VelociraptorPlatform, version: str, msi_mode: str | None) -> str:
@@ -465,12 +487,17 @@ class VelociraptorSetupService:
             api_temp = None
             if os.name == "posix":
                 api_config_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            endpoint_bundles = [
+                self.build_endpoint_bundle(target, installation=installation)
+                for target in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64)
+            ]
             return {
                 "config_path": str(config_path),
                 "client_config_path": str(client_config_path),
                 "api_config_path": str(api_config_path),
                 "frontend_url": frontend_url,
                 "admin_username": admin_username,
+                "endpoint_bundles": endpoint_bundles,
             }
         finally:
             # The merge payload contains password-derived material; remove it after use.

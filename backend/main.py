@@ -51,6 +51,8 @@ from backend.core.models import (
     VelociraptorPrepareResponse,
     VelociraptorConfigGenerateRequest,
     VelociraptorConfigGenerateResponse,
+    VelociraptorBundleArtifact,
+    VelociraptorBundlesResponse,
     VelociraptorBundleResponse,
     VelociraptorCatalog,
     VelociraptorRunRequest,
@@ -433,7 +435,8 @@ def generate_velociraptor_config(
         api_config_path=result["api_config_path"],
         frontend_url=result["frontend_url"],
         admin_username=result["admin_username"],
-        message="Self-signed server, endpoint client, and local API client configurations were generated. Frontend port is fixed at 8010.",
+        endpoint_bundles=[VelociraptorBundleArtifact(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode")}) for bundle in result["endpoint_bundles"]],
+        message="Self-signed server, endpoint client, API client, and Linux/Windows endpoint ZIP configurations were generated. Frontend port is fixed at 8010.",
         audit_id=audit.id,
     )
 
@@ -482,6 +485,12 @@ def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: 
         config_path=str(session.config_path),
         config_ready=session.config_path.is_file(),
     )
+
+
+@app.get("/api/velociraptor/endpoints/bundles", response_model=VelociraptorBundlesResponse)
+def list_velociraptor_endpoint_bundles(principal: Principal = Depends(get_principal)) -> VelociraptorBundlesResponse:
+    _ = principal
+    return VelociraptorBundlesResponse(bundles=[VelociraptorBundleArtifact(**bundle) for bundle in velociraptor_setup.list_endpoint_bundles()])
 
 
 @app.post("/api/velociraptor/endpoints/bundle", response_model=VelociraptorBundleResponse)

@@ -297,6 +297,7 @@ class VelociraptorConfigGenerateResponse(BaseModel):
     frontend_port: int = Field(default=8010, ge=1, le=65535)
     frontend_url: str
     admin_username: str
+    endpoint_bundles: list["VelociraptorBundleArtifact"] = []
     message: str
     audit_id: str
 
@@ -358,6 +359,23 @@ class VelociraptorRunResponse(BaseModel):
     log_path: str | None = None
     message: str
     audit_id: str
+
+
+class VelociraptorBundleArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    platform: VelociraptorPlatform
+    version: str
+    filename: str
+    download_url: str
+    includes_msi: bool = False
+    msi_mode: Literal["repacked", "official"] | None = None
+
+
+class VelociraptorBundlesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundles: list[VelociraptorBundleArtifact] = []
 
 
 class VelociraptorBundleResponse(BaseModel):
