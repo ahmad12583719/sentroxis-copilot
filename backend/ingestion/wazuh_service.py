@@ -175,11 +175,11 @@ class WazuhService:
                                 **agent,
                                 "id": str(agent.get("id", "")),
                                 "name": agent.get("name") or str(agent.get("id", "")),
-                                "status": agent.get("status") or "active",
+                                "status": str(agent.get("status", "")).lower(),
                                 "lastKeepAlive": agent.get("lastKeepAlive") or agent.get("last_keep_alive"),
                             }
                             for agent in raw_agents
-                            if isinstance(agent, dict) and str(agent.get("status", "active")).lower() == "active"
+                            if isinstance(agent, dict) and str(agent.get("status", "")).lower() == "active"
                         ]
                     else:
                         errors.append("Wazuh API authentication returned no token")
