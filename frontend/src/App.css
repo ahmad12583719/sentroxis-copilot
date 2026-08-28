@@ -196,6 +196,29 @@ button:active { transform: scale(.98); }
 @media (max-width: 900px) { .agent-management-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: clamp(560px, calc(100vh - 190px), 780px); }.wazuh-dashboard-frame { min-height: 560px; } }
 @media (max-width: 650px) { .wazuh-summary-grid { grid-template-columns: 1fr; }.dashboard-frame-wrap { height: 560px; }.wazuh-dashboard-frame { min-height: 560px; }.agent-grid { grid-template-columns: 1fr; }.topnav { gap: 10px; margin-left: 18px; overflow-x: auto; }.topbar { padding: 0 16px; }.environment-pill { display: none; } }
 
+/* Wazuh endpoint enrollment */
+.wazuh-endpoint-panel { margin-bottom: 16px; overflow: hidden; }
+.endpoint-lede { color: #718b8e; font-size: 11px; line-height: 1.5; margin: 6px 0 0; max-width: 680px; }
+.wazuh-agent-form { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 11px; padding: 18px 20px; border-bottom: 1px solid #183037; background: #0c1a1f; }
+.wazuh-agent-form label { display: flex; flex-direction: column; gap: 6px; color: #789398; font: 9px 'DM Mono'; text-transform: uppercase; letter-spacing: .08em; }
+.wazuh-agent-form label small { color: #526f75; font-size: 8px; text-transform: none; letter-spacing: 0; }
+.wazuh-agent-form input, .wazuh-agent-form select { width: 100%; min-height: 36px; border: 1px solid #27454a; border-radius: 6px; background: #102328; color: #c8dddd; outline: 0; padding: 8px 9px; font: 10px 'DM Mono'; text-transform: none; letter-spacing: 0; }
+.wazuh-agent-form input:focus, .wazuh-agent-form select:focus { border-color: #3c9b83; box-shadow: 0 0 0 2px rgba(45,247,181,.1); }
+.wazuh-agent-form .button { align-self: end; min-height: 36px; justify-content: center; white-space: nowrap; }
+.wazuh-enrollment-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding: 18px 20px; }
+.wazuh-step { min-width: 0; border: 1px solid #1d3b40; border-radius: 8px; background: linear-gradient(145deg, #10252a, #0b181d); padding: 14px; }
+.wazuh-step > span { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; border: 1px solid #2d7665; color: #58e2b3; background: #12362f; font: 9px 'DM Mono'; }
+.wazuh-step strong { display: block; margin-top: 11px; color: #c6dbd8; font-size: 11px; }
+.wazuh-step p { color: #708a8d; font-size: 10px; line-height: 1.5; margin: 6px 0 0; }
+.wazuh-command-row { display: flex; align-items: flex-start; gap: 7px; margin-top: 9px; padding: 7px 8px; border: 1px solid #23464c; border-radius: 5px; background: #071317; }
+.wazuh-command-row code { min-width: 0; flex: 1; color: #9bd5c2; font: 9px/1.45 'DM Mono'; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wazuh-command-row .icon-button { flex: 0 0 25px; width: 25px; height: 25px; border-color: #25474c; }
+.wazuh-agent-key { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 20px 18px; padding: 12px 13px; border: 1px solid #5a4828; border-radius: 7px; background: #241d13; }
+.wazuh-agent-key > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }.wazuh-agent-key strong { color: #e5c27d; font-size: 11px; }.wazuh-agent-key small { color: #aa8b56; font: 9px 'DM Mono'; overflow-wrap: anywhere; }.wazuh-agent-key .button { flex: 0 0 auto; }
+.wazuh-agent-list { border-top: 1px solid #183037; }.wazuh-agent-list .panel-heading { margin: 0; padding-top: 15px; padding-bottom: 13px; }.wazuh-agent-list .panel-heading h3 { color: #c9dcda; font-size: 13px; margin: 5px 0 0; }.wazuh-agent-table { padding: 0 20px 16px; }.wazuh-agent-row { display: grid; grid-template-columns: 24px minmax(130px, 1.4fr) minmax(110px, 1fr) 100px minmax(110px, 1fr); align-items: center; gap: 9px; padding: 10px 0; border-top: 1px solid #172f35; color: #7f999d; font: 10px 'DM Mono'; }.wazuh-agent-row strong { color: #c4d9d7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.wazuh-agent-row small { color: #607b80; }.compact-empty { margin: 0; padding: 0 20px 18px; color: #6c8589; font-size: 10px; }
+@media (max-width: 1050px) { .wazuh-agent-form { grid-template-columns: repeat(3, 1fr); }.wazuh-agent-form .button { grid-column: span 3; justify-self: start; } .wazuh-enrollment-steps { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 650px) { .wazuh-agent-form { grid-template-columns: 1fr; padding-left: 15px; padding-right: 15px; }.wazuh-agent-form .button { grid-column: auto; width: 100%; }.wazuh-enrollment-steps { grid-template-columns: 1fr; padding-left: 15px; padding-right: 15px; }.wazuh-agent-key { align-items: flex-start; flex-direction: column; margin-left: 15px; margin-right: 15px; }.wazuh-agent-key .button { width: 100%; justify-content: center; }.wazuh-agent-table { padding-left: 15px; padding-right: 15px; overflow-x: auto; }.wazuh-agent-row { min-width: 520px; }.wazuh-agent-list .panel-heading { padding-left: 15px; padding-right: 15px; } }
+
 /* Velociraptor local server dashboard */
 .velociraptor-server-grid { display: grid; grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr); gap: 16px; margin-bottom: 16px; }
 .velociraptor-server-control, .velociraptor-gui-panel { min-height: 430px; }

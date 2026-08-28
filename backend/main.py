@@ -14,6 +14,7 @@ from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+import httpx
 
 from backend.core.auth import (
     SESSION_COOKIE,
@@ -62,6 +63,8 @@ from backend.core.models import (
     VelociraptorWizardOutput,
     VelociraptorWizardStartRequest,
     VelociraptorWizardStartResponse,
+    WazuhAgentCreateRequest,
+    WazuhAgentCreateResponse,
     Source,
     TimelineEvent,
 )
@@ -611,6 +614,29 @@ def stop_velociraptor_server(principal: Principal = Depends(get_principal)) -> V
         message="Velociraptor server process stopped.",
         audit_id=audit.id,
     )
+
+
+@app.post("/api/wazuh/agents/enroll", response_model=WazuhAgentCreateResponse)
+def enroll_wazuh_agent(request: WazuhAgentCreateRequest, principal: Principal = Depends(get_principal)) -> WazuhAgentCreateResponse:
+    require_role(principal, "analyst", "admin")
+    if not request.confirm_create:
+        raise HTTPException(status_code=400, detail="Explicit agent enrollment confirmation is required")
+    try:
+        result = wazuh.enroll_agent(
+            name=request.name,
+            ip=request.ip,
+            group=request.group,
+            platform=request.platform,
+            manager_address=request.manager_address,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=502, detail=f"Wazuh Manager API rejected the enrollment request ({exc.response.status_code})") from exc
+    except (httpx.HTTPError, RuntimeError) as exc:
+        raise HTTPException(status_code=502, detail=f"Wazuh Manager API enrollment failed: {exc}") from exc
+    audit = save_audit(principal, "wazuh.agent.enrolled", result["id"], {"platform": result["platform"], "name": result["name"]})
+    return WazuhAgentCreateResponse(**result, message="Agent created. Run the four endpoint commands on the target machine, then refresh telemetry to verify it is reporting.", audit_id=audit.id)
 
 
 @app.get("/api/wazuh/overview")

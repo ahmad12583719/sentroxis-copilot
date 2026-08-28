@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import os
+import re
+import shlex
 from datetime import datetime, timezone
 from typing import Any
 
@@ -31,6 +34,75 @@ class WazuhService:
             raw=payload,
         )
         return enrich_alert(alert)
+
+    def enroll_agent(self, *, name: str, ip: str | None, group: str | None, platform: str, manager_address: str | None) -> dict[str, str]:
+        """Create one Wazuh agent and return a one-time client-key workflow.
+
+        The API token and service credentials remain server-side. The returned
+        client key is intentionally exposed only to the authenticated analyst
+        who requested this enrollment so it can be imported on the endpoint.
+        """
+        manager_url = os.getenv("WAZUH_MANAGER_API_URL", "https://127.0.0.1:55000").rstrip("/")
+        api_user = os.getenv("WAZUH_API_USER", "wazuh-wui")
+        api_password = os.getenv("WAZUH_API_PASSWORD", "")
+        verify: bool | str = os.getenv("WAZUH_CA_BUNDLE") or False
+        if not api_password:
+            raise RuntimeError("WAZUH_API_PASSWORD is not configured")
+        address = (manager_address or os.getenv("WAZUH_AGENT_MANAGER_ADDRESS") or "127.0.0.1").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.:-]{0,252}", address):
+            raise ValueError("Manager address must be a hostname or IP address")
+        if ip:
+            try:
+                ipaddress.ip_address(ip.strip())
+            except ValueError as exc:
+                raise ValueError("Endpoint IP must be a valid IPv4 or IPv6 address") from exc
+        timeout = httpx.Timeout(10.0, connect=3.0)
+        with httpx.Client(verify=verify, timeout=timeout) as client:
+            token_response = client.post(f"{manager_url}/security/user/authenticate", auth=(api_user, api_password))
+            token_response.raise_for_status()
+            token_data = token_response.json().get("data")
+            token = token_data.get("token") if isinstance(token_data, dict) else token_data
+            if not isinstance(token, str) or not token:
+                raise RuntimeError("Wazuh API authentication returned no token")
+            payload: dict[str, Any] = {"name": name}
+            if ip:
+                payload["ip"] = ip
+            if group:
+                payload["groups"] = group
+            response = client.post(
+                f"{manager_url}/agents",
+                params={"pretty": "true"},
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json().get("data") or {}
+            agent_id = str(data.get("id") or "")
+            key = str(data.get("key") or "")
+            if not agent_id or not key:
+                raise RuntimeError("Wazuh did not return an agent ID and client key")
+        quoted_key = shlex.quote(key)
+        if platform == "windows":
+            install_command = "Install the Wazuh agent MSI for the Manager version on the endpoint, then open PowerShell as Administrator."
+            enroll_command = f'& "C:\\Program Files (x86)\\ossec-agent\\manage_agents.exe" -i {key!r}'
+            configure_command = f"$p='C:\\Program Files (x86)\\ossec-agent\\ossec.conf'; (Get-Content $p) -replace '<address>.*</address>', '<address>{address}</address>' | Set-Content $p"
+            restart_command = "Restart-Service -Name WazuhSvc; Get-Service -Name WazuhSvc"
+        else:
+            install_command = f"wget -q https://packages.wazuh.com/4.x/apt/pool/main/w/wazuh-agent/wazuh-agent_4.7.5-1_amd64.deb -O /tmp/wazuh-agent_4.7.5-1_amd64.deb && sudo WAZUH_MANAGER={shlex.quote(address)} dpkg -i /tmp/wazuh-agent_4.7.5-1_amd64.deb"
+            enroll_command = f"sudo /var/ossec/bin/manage_agents -i {quoted_key}"
+            configure_command = f"sudo sed -i 's#<address>.*</address>#<address>{address}</address>#' /var/ossec/etc/ossec.conf"
+            restart_command = "sudo systemctl enable wazuh-agent && sudo systemctl restart wazuh-agent && sudo systemctl --no-pager status wazuh-agent"
+        return {
+            "id": agent_id,
+            "name": name,
+            "key": key,
+            "platform": platform,
+            "manager_address": address,
+            "install_command": install_command,
+            "enroll_command": enroll_command,
+            "configure_command": configure_command,
+            "restart_command": restart_command,
+        }
 
     def live_overview(self) -> dict[str, Any]:
         """Return bounded live Manager agents and Indexer alerts.

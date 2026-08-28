@@ -146,6 +146,33 @@ class AuditEvent(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
+class WazuhAgentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9._-]+$")
+    ip: str | None = Field(default=None, max_length=64)
+    group: str | None = Field(default=None, max_length=120, pattern=r"^[A-Za-z0-9._-]+$")
+    platform: Literal["linux", "windows"] = "linux"
+    manager_address: str | None = Field(default=None, max_length=255)
+    confirm_create: bool = False
+
+
+class WazuhAgentCreateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    key: str
+    platform: Literal["linux", "windows"]
+    manager_address: str
+    install_command: str
+    enroll_command: str
+    configure_command: str
+    restart_command: str
+    message: str
+    audit_id: str
+
+
 ServerKey = Literal["wazuh", "velociraptor"]
 
 
