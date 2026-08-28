@@ -327,6 +327,12 @@ class VelociraptorConfigGenerateResponse(BaseModel):
     audit_id: str
 
 
+class VelociraptorConsoleLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password_confirmation: str = Field(min_length=12, max_length=128)
+
+
 class VelociraptorWizardStartRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -167,6 +168,55 @@ def write_wazuh_handoff(shared_password: str) -> None:
     WAZUH_HANDOFF_PATH.chmod(0o600)
 
 
+def sign_in_existing_account() -> tuple[str, str]:
+    """Authenticate an existing local account for the shared installer workflow."""
+    ensure_auth_schema()
+    email = ask("Sentroxis login email").lower()
+    while True:
+        password = getpass.getpass("Sentroxis/Wazuh admin password: ")
+        try:
+            from backend.core.auth import authenticate, configure_auth_db
+            configure_auth_db(str(DB_PATH))
+            principal = authenticate(email, password)
+        except ModuleNotFoundError as error:
+            if error.name != "fastapi":
+                raise
+            with sqlite3.connect(DB_PATH) as db:
+                row = db.execute("SELECT id, name, email, role, password_hash FROM users WHERE email = ?", (email,)).fetchone()
+            principal = None
+            if row:
+                algorithm, iterations, salt_hex, digest_hex = row[4].split("$", 3)
+                candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), int(iterations)).hex()
+                if algorithm == "pbkdf2_sha256" and hmac.compare_digest(candidate, digest_hex):
+                    principal = InstallerPrincipal(subject=row[0], name=row[1], email=row[2], role=row[3])
+        if principal is not None:
+            validate_wazuh_compatible_password(password)
+            IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
+            IDENTITY_PATH.write_text(json.dumps({"account_id": principal.subject, "email": principal.email, "name": principal.name, "role": principal.role}, indent=2) + "\n", encoding="utf-8")
+            IDENTITY_PATH.chmod(0o600)
+            print(f"Existing Sentroxis account signed in: {principal.email}")
+            return principal.email, password
+        print("ERROR: Invalid Sentroxis email or password. Try again.")
+
+
+def choose_installer_account() -> tuple[str, str]:
+    ensure_auth_schema()
+    with sqlite3.connect(DB_PATH) as db:
+        has_account = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+    if not has_account:
+        return create_fresh_sentroxis_account()
+    print("\nAn existing Sentroxis account was found.")
+    print("1. Sign in with the existing account")
+    print("2. Forget it and create a fresh account")
+    print("3. Exit installer")
+    choice = ask("Select an account action", "1")
+    if choice == "1":
+        return sign_in_existing_account()
+    if choice == "2":
+        return create_fresh_sentroxis_account()
+    raise RuntimeError("Installer exited without changing the existing account")
+
+
 def create_fresh_sentroxis_account() -> tuple[str, str]:
     reset_previous_sentroxis_state()
     ensure_auth_schema()
@@ -286,7 +336,7 @@ def main() -> int:
     print("=== Sentroxis fresh installation ===")
     print("Task 01: create the fresh Sentroxis web-login account")
     try:
-        _, password = create_fresh_sentroxis_account()
+        _, password = choose_installer_account()
         return installation_menu(password)
     except KeyboardInterrupt:
         print("\nInstaller cancelled by user.")

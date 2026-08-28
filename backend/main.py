@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import httpx
 import sqlite3
 import subprocess
 import uuid
@@ -10,9 +11,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response as FastAPIResponse
 from pydantic import BaseModel, Field
 import httpx
 
@@ -55,6 +56,7 @@ from backend.core.models import (
     VelociraptorBundleArtifact,
     VelociraptorBundlesResponse,
     VelociraptorBundleResponse,
+    VelociraptorConsoleLoginRequest,
     VelociraptorCatalog,
     VelociraptorRunRequest,
     VelociraptorRunResponse,
@@ -490,6 +492,20 @@ def send_velociraptor_wizard_input(request: VelociraptorWizardInput, principal: 
     )
 
 
+@app.get("/api/velociraptor/console/session")
+def velociraptor_console_session(principal: Principal = Depends(get_principal)) -> dict[str, bool]:
+    return {"authenticated": velociraptor_setup.console_credentials_for(principal.email) is not None}
+
+
+@app.post("/api/velociraptor/console/session")
+def login_velociraptor_console(request: VelociraptorConsoleLoginRequest, principal: Principal = Depends(get_principal)) -> dict[str, bool]:
+    if not verify_principal_password(principal, request.password_confirmation):
+        raise HTTPException(status_code=401, detail="Password confirmation did not match the signed-in account")
+    velociraptor_setup.set_console_credentials(principal.email, request.password_confirmation)
+    save_audit(principal, "velociraptor.console.authenticated", principal.subject, {"method": "ephemeral_basic_auth"})
+    return {"authenticated": True}
+
+
 @app.get("/api/velociraptor/endpoints/bundles", response_model=VelociraptorBundlesResponse)
 def list_velociraptor_endpoint_bundles(principal: Principal = Depends(get_principal)) -> VelociraptorBundlesResponse:
     _ = principal
@@ -526,6 +542,30 @@ def download_velociraptor_endpoint_bundle(platform: str, principal: Principal = 
     if not bundle_path.is_file():
         raise HTTPException(status_code=404, detail="Build the endpoint bundle before downloading it")
     return FileResponse(bundle_path, media_type="application/zip", filename=bundle_path.name, headers={"Cache-Control": "no-store"})
+
+
+@app.api_route("/velociraptor-console/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+async def proxy_velociraptor_console(path: str, request: Request, principal: Principal = Depends(get_principal)) -> FastAPIResponse:
+    credentials = velociraptor_setup.console_credentials_for(principal.email)
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="Velociraptor console authentication is required")
+    try:
+        gui_port = velociraptor_setup.server_details(velociraptor_setup.load_installation()).get("gui_port")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Velociraptor is not configured") from exc
+    if not gui_port:
+        raise HTTPException(status_code=503, detail="Velociraptor GUI is not available")
+    target = f"https://127.0.0.1:{gui_port}/velociraptor-console/{path}"
+    if request.url.query:
+        target += f"?{request.url.query}"
+    headers = {key: value for key, value in request.headers.items() if key.lower() not in {"host", "content-length", "authorization"}}
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=20.0, follow_redirects=False) as client:
+            upstream = await client.request(request.method, target, content=await request.body(), headers=headers, auth=credentials)
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail="Velociraptor console is unavailable") from exc
+    response_headers = {key: value for key, value in upstream.headers.items() if key.lower() not in {"content-length", "transfer-encoding", "connection", "content-encoding"}}
+    return FastAPIResponse(content=upstream.content, status_code=upstream.status_code, headers=response_headers, media_type=upstream.headers.get("content-type"))
 
 
 @app.get("/api/velociraptor/api-config/download")

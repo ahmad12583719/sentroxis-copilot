@@ -300,3 +300,12 @@ button:active { transform: scale(.98); }
 .spin { animation: endpoint-spin 1s linear infinite; }
 @keyframes endpoint-spin { to { transform: rotate(360deg); } }
 @media (max-width: 600px) { .endpoint-download-row { align-items: stretch; flex-direction: column; }.endpoint-download-row .button { justify-content: center; }.endpoint-status-body, .endpoint-card-body { padding-left: 15px; padding-right: 15px; } }
+
+.console-login-card { align-items: center; background: rgba(10, 25, 29, .94); border: 1px solid #2b5155; border-radius: 10px; display: flex; flex-direction: column; gap: 10px; max-width: 390px; padding: 28px; text-align: left; width: min(390px, 90vw); }
+.console-login-card > svg { color: #2df7b5; margin-bottom: 3px; }
+.console-login-card h1 { align-self: stretch; margin: 0; text-align: center; }
+.console-login-card p { color: #8ba3a3; font-size: 10px; line-height: 1.55; margin: 0 0 5px; text-align: center; }
+.console-login-card label { align-self: stretch; color: #9bb8b5; font: 9px 'DM Mono'; text-transform: uppercase; }
+.console-login-card input { background: #071215; border: 1px solid #2b4c50; border-radius: 5px; color: #d5e7e3; font: 11px 'DM Mono'; padding: 10px; width: 100%; }
+.console-login-card input:focus { border-color: #2df7b5; box-shadow: 0 0 0 2px rgba(45, 247, 181, .12); outline: none; }
+.console-login-card .button { align-self: stretch; justify-content: center; margin-top: 5px; }

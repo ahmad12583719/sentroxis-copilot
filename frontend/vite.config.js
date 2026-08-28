@@ -20,9 +20,9 @@ export default defineConfig({
       // Keep the browser-facing host and HTTPS origin intact. Velociraptor is
       // configured with this same base path, so its CSRF cookie is first-party.
       '/velociraptor-console': {
-        target: 'https://127.0.0.1:8889',
+        target: 'http://127.0.0.1:8000',
         secure: false,
-        ws: true,
+        ws: false,
         changeOrigin: false,
       },
     },

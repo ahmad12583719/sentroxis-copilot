@@ -58,8 +58,7 @@ start_velociraptor() {
   fi
   rm -f "$VELOCIRAPTOR_PID"
   printf '==> Starting project-local Velociraptor server\n'
-  printf '    Command: %s --config %s frontend -v\n' "$VELOCIRAPTOR_BIN" "$VELOCIRAPTOR_CONFIG"
-  (cd "$VELOCIRAPTOR_DIR" && exec "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend -v) >> "$VELOCIRAPTOR_LOG" 2>&1 &
+  (cd "$VELOCIRAPTOR_DIR" && exec "$VELOCIRAPTOR_BIN" --config "$VELOCIRAPTOR_CONFIG" frontend) >> "$VELOCIRAPTOR_LOG" 2>&1 &
   VELOCIRAPTOR_STARTED_PID="$!"
   printf '%s\n' "$VELOCIRAPTOR_STARTED_PID" > "$VELOCIRAPTOR_PID"
   chmod 600 "$VELOCIRAPTOR_PID"
