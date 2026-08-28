@@ -3,14 +3,25 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 const AuthContext = createContext(null)
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.detail || 'Request failed')
-  return data
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 10000)
+  const { signal: callerSignal, ...requestOptions } = options
+  try {
+    const response = await fetch(path, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(requestOptions.headers || {}) },
+      ...requestOptions,
+      signal: callerSignal || controller.signal,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(data.detail || 'Request failed')
+    return data
+  } catch (reason) {
+    if (reason?.name === 'AbortError') throw new Error('Sentroxis backend did not respond within 10 seconds')
+    throw reason
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 export function AuthProvider({ children }) {
