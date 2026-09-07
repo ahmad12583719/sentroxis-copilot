@@ -270,45 +270,14 @@ EOF
 patch_filebeat_templates() {
   local build_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml"
   local single_node_template="${WAZUH_HOME}/single-node/config/wazuh_cluster/filebeat.yml"
-  local entrypoint="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/etc/cont-init.d/1-config-filebeat"
   [[ -f "$build_template" ]] || fatal "Pinned Wazuh checkout lacks the Filebeat build template."
-  [[ -f "$entrypoint" ]] || fatal "Pinned Wazuh checkout lacks the Filebeat initialization script."
   mkdir -p "$(dirname "$single_node_template")"
   [[ -f "$single_node_template" ]] || cp -p "$build_template" "$single_node_template"
   patch_filebeat_template "$single_node_template"
   patch_filebeat_template "$build_template"
-  cp -p "$entrypoint" "${WAZUH_HOME}/build-docker-images/wazuh-manager/1-config-filebeat.sentroxis"
-  cat >> "${WAZUH_HOME}/build-docker-images/wazuh-manager/1-config-filebeat.sentroxis" <<'EOF'
-
-# SENTROXIS_FILEBEAT_ARCHIVE_INIT
-filebeat_conf=/etc/filebeat/filebeat.yml
-if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$filebeat_conf"; then
-  cat <<'FILEBEAT_ARCHIVE_INPUT' >> "$filebeat_conf"
-
-# SENTROXIS_CUSTOM_ARCHIVE_INPUT
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/ossec/logs/archives/archives.json
-    tags: ["wazuh-archives"]
-FILEBEAT_ARCHIVE_INPUT
-fi
-if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
-  sed -i '/^output\.\(elasticsearch\|opensearch\):[[:space:]]*$/a\
-  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING\
-  indices:\
-    - index: "wazuh-archives-%{+yyyy.MM.dd}"\
-      when.contains:\
-        tags: "wazuh-archives"\
-    - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$filebeat_conf"
-fi
-EOF
   cat > "${WAZUH_HOME}/build-docker-images/wazuh-manager/Dockerfile.sentroxis" <<'DOCKERFILE'
 FROM wazuh/wazuh-manager:4.7.5
 COPY config/filebeat.yml /etc/filebeat/filebeat.yml
-COPY 1-config-filebeat.sentroxis /etc/cont-init.d/1-config-filebeat
-RUN chmod 755 /etc/cont-init.d/1-config-filebeat
 RUN chmod go-w /etc/filebeat/filebeat.yml
 DOCKERFILE
 }
