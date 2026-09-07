@@ -31,8 +31,64 @@ BACKEND_DIR = ROOT / "backend"
 DB_PATH = BACKEND_DIR / "sentroxis.db"
 IDENTITY_PATH = BACKEND_DIR / "runtime" / "velociraptor" / "setup-identity.json"
 WAZUH_HANDOFF_PATH = ROOT / "runtime" / ".wazuh-install.env"
+WAZUH_HOME = ROOT / ".wazuh"
 WAZUH_PASSWORD_LENGTH = 32
 WAZUH_PASSWORD_SPECIALS = "@#%+=:,._/-!"
+ARCHIVE_INPUT = '''# SENTROXIS_CUSTOM_ARCHIVE_INPUT
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/archives/archives.json
+    tags: ["wazuh-archives"]
+'''
+ARCHIVE_ROUTING = '''  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING
+  indices:
+    - index: "wazuh-archives-%{+yyyy.MM.dd}"
+      when.contains:
+        tags: "wazuh-archives"
+    - index: "wazuh-alerts-%{+yyyy.MM.dd}"
+'''
+
+
+def patch_wazuh_filebeat_template(path: Path) -> None:
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8")
+    if "# SENTROXIS_CUSTOM_ARCHIVE_INPUT" not in text:
+        text = text.rstrip() + "\n\n" + ARCHIVE_INPUT
+    if "# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING" not in text:
+        import re
+        text, count = re.subn(
+            r"(?m)^output\.(?:elasticsearch|opensearch):[ \t]*$",
+            lambda match: match.group(0) + "\n" + ARCHIVE_ROUTING.rstrip("\n"),
+            text,
+            count=1,
+        )
+        if count == 0:
+            raise RuntimeError(f"No Filebeat output block found in {path}")
+    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
+
+
+def repair_wazuh_workspace() -> None:
+    if not WAZUH_HOME.exists():
+        return
+    for template in (
+        WAZUH_HOME / "single-node" / "config" / "wazuh_cluster" / "filebeat.yml",
+        WAZUH_HOME / "build-docker-images" / "wazuh-manager" / "config" / "filebeat.yml",
+    ):
+        patch_wazuh_filebeat_template(template)
+    manager_config = WAZUH_HOME / "single-node" / "config" / "wazuh_cluster" / "wazuh_manager.conf"
+    if manager_config.is_file():
+        text = manager_config.read_text(encoding="utf-8")
+        manager_config.write_text(text.replace("<logall_json>no</logall_json>", "<logall_json>yes</logall_json>"), encoding="utf-8")
+    owner = os.environ.get("SUDO_USER") or os.environ.get("USER")
+    if owner and owner != "root":
+        group = subprocess.run(["id", "-gn", owner], capture_output=True, text=True, check=False).stdout.strip() or owner
+        command = ["chown", "-R", f"{owner}:{group}", str(WAZUH_HOME)]
+        if os.geteuid() != 0:
+            command = ["sudo", "-n", *command]
+        subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def ask(prompt: str, default: str | None = None) -> str:
@@ -209,9 +265,8 @@ def run_wazuh(password: str) -> int:
         print(f"ERROR: Wazuh installer not found: {script}")
         return 1
     if not os.access(script, os.X_OK):
-        print(f"ERROR: Wazuh installer is not executable: {script}")
-        print(f"Run: chmod 700 {script}")
-        return 1
+        script.chmod(script.stat().st_mode | 0o700)
+    repair_wazuh_workspace()
     print("\nStarting Wazuh with the shared Sentroxis/Wazuh admin password.")
     print("Wazuh Dashboard login: username admin; use the Sentroxis password.")
     print("Internal kibanaserver and wazuh-wui passwords will be generated and stored locally.")
@@ -226,6 +281,7 @@ def run_wazuh(password: str) -> int:
             f"set -a; source {handoff}; set +a; exec {installer}",
         ]
         completed = subprocess.run(command, cwd=ROOT, check=False)
+        repair_wazuh_workspace()
     except FileNotFoundError:
         print("ERROR: sudo is not available; run the Wazuh installer manually with the required privileges.")
         return 1

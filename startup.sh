@@ -4,6 +4,21 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+repair_wazuh_ownership() {
+  local wazuh_dir="$ROOT_DIR/.wazuh" owner group
+  [[ -d "$wazuh_dir" ]] || return 0
+  owner="${SUDO_USER:-${USER:-}}"
+  [[ -n "$owner" && "$owner" != root ]] || return 0
+  group="$(id -gn "$owner" 2>/dev/null || printf '%s' "$owner")"
+  if [[ "$EUID" -eq 0 ]]; then
+    chown -R "$owner:$group" "$wazuh_dir" 2>/dev/null || true
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo -n chown -R "$owner:$group" "$wazuh_dir" 2>/dev/null ||
+      printf 'WARNING: Could not automatically repair ownership under %s\n' "$wazuh_dir" >&2
+  fi
+}
+repair_wazuh_ownership
+
 # Wazuh is an optional external integration. This startup script does not
 # install, require, or start Wazuh services. Configure its API variables only
 # when Wazuh telemetry is available for this deployment.

@@ -421,6 +421,12 @@ server {
 }
 NGINX
 }
+repair_wazuh_ownership() {
+  local owner="${SUDO_USER:-${USER:-}}" group
+  [[ -n "$owner" && "$owner" != root ]] || return 0
+  group="$(id -gn "$owner" 2>/dev/null || printf '%s' "$owner")"
+  chown -R "$owner:$group" "$WAZUH_HOME" 2>/dev/null || warn "Could not fully repair ownership under $WAZUH_HOME."
+}
 
 compose() {
   docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml "$@"
@@ -534,6 +540,7 @@ main() {
   configure_credentials
   generate_certificates
   configure_local_proxy
+  repair_wazuh_ownership
   validate_stack
   log "Wazuh installation completed. No active response or endpoint enrollment was enabled."
 }
