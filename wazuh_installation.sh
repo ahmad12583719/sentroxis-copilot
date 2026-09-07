@@ -465,42 +465,62 @@ sed -i.bak \
   's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
   /var/ossec/etc/ossec.conf
 
-# Enable the Wazuh Filebeat archives input and label its events for strict
-# wazuh-archives-* output routing in the final Filebeat output configuration.
+# Enable the Wazuh Filebeat archives input in the active module file. The
+# Wazuh Docker image loads this file from modules.d at startup.
 filebeat_conf=/etc/filebeat/filebeat.yml
-# In the pinned Wazuh 4.7.x image, alerts is true and archives is the only
-# module entry with `enabled: false`, so this direct substitution is safe and
-# is not affected by sed's same-line range-end behavior.
-sed -i 's/^      enabled:[[:space:]]*false[[:space:]]*$/      enabled: true/' "$filebeat_conf"
-if ! grep -q '^    archives:[[:space:]]*$' "$filebeat_conf"; then
-  echo "Filebeat Wazuh archives module was not found in $filebeat_conf" >&2
+module_conf=/etc/filebeat/modules.d/wazuh.yml
+[[ -f "$module_conf" ]] || {
+  echo "Wazuh Filebeat module file was not found at $module_conf" >&2
+  exit 1
+}
+awk '
+  /^[[:space:]]*archives:[[:space:]]*$/ {
+    in_archives=1
+    print
+    next
+  }
+  in_archives && /^[[:space:]]+enabled:[[:space:]]*(false|true)[[:space:]]*$/ {
+    sub(/(false|true)[[:space:]]*$/, "true")
+    print
+    enabled=1
+    next
+  }
+  in_archives && /^[[:space:]]+[A-Za-z0-9_-]+:[[:space:]]*$/ {
+    in_archives=0
+  }
+  { print }
+  END { if (!enabled) exit 1 }
+' "$module_conf" > "$module_conf.tmp"
+mv "$module_conf.tmp" "$module_conf"
+if ! grep -A3 '^[[:space:]]*archives:[[:space:]]*$' "$module_conf" | grep -q 'enabled:[[:space:]]*true'; then
+  echo "Failed to enable the Wazuh Filebeat archives module in $module_conf" >&2
   exit 1
 fi
-if ! grep -q 'wazuh-archives' "$filebeat_conf"; then
+if ! grep -q 'wazuh-archives' "$module_conf"; then
   awk '
-    /^    archives:[[:space:]]*$/ { in_archives=1; found=1 }
-    in_archives && /^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ && $0 !~ /^    archives:/ { in_archives=0 }
-    in_archives && /^      enabled:[[:space:]]*true[[:space:]]*$/ {
+    /^[[:space:]]*archives:[[:space:]]*$/ { in_archives=1; found=1 }
+    in_archives && /^[[:space:]]+enabled:[[:space:]]*true[[:space:]]*$/ {
       print
       print "      tags: [\"wazuh-archives\"]"
       tagged=1
       next
     }
+    in_archives && /^    [A-Za-z0-9_-]+:[[:space:]]*$/ { in_archives=0 }
     { print }
     END { if (!found || !tagged) exit 1 }
-  ' "$filebeat_conf" > "$filebeat_conf.tmp"
-  mv "$filebeat_conf.tmp" "$filebeat_conf"
+  ' "$module_conf" > "$module_conf.tmp"
+  mv "$module_conf.tmp" "$module_conf"
 fi
 
 grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
   echo "Failed to enable JSON log archiving" >&2
   exit 1
 }
-grep -A3 '^    archives:[[:space:]]*$' "$filebeat_conf" | grep -q 'enabled: true' || {
+grep -A3 '^[[:space:]]*archives:[[:space:]]*$' "$module_conf" | grep -q 'enabled:[[:space:]]*true' || {
   echo "Failed to enable the Filebeat archives input" >&2
   exit 1
 }
-grep -q 'wazuh-archives' "$filebeat_conf" || {
+grep -q 'wazuh-archives' "$module_conf" || {
   echo "Failed to tag Filebeat archive events" >&2
   exit 1
 }
