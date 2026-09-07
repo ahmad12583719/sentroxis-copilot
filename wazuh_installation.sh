@@ -501,6 +501,41 @@ grep -q 'wazuh-archives' "$filebeat_conf" || {
   echo "Failed to tag Filebeat archive events" >&2
   exit 1
 }
+
+# Route archive-tagged events to wazuh-archives-* and all other events to the
+# standard wazuh-alerts-* daily index. The Wazuh Docker image runs Filebeat in
+# the Manager container, so this edits the active output configuration there.
+if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
+  awk '
+    /^output\.(elasticsearch|opensearch):[[:space:]]*$/ {
+      print
+      print "# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING"
+      print "  indices:"
+      print "    - index: \"wazuh-archives-%{+yyyy.MM.dd}\""
+      print "      when.contains:"
+      print "        tags: \"wazuh-archives\""
+      print "    - index: \"wazuh-alerts-%{+yyyy.MM.dd}\""
+      found_output=1
+      next
+    }
+    { print }
+    END { if (!found_output) exit 1 }
+  ' "$filebeat_conf" > "$filebeat_conf.tmp"
+  mv "$filebeat_conf.tmp" "$filebeat_conf"
+fi
+
+grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf" || {
+  echo "Failed to configure Filebeat archive index routing" >&2
+  exit 1
+}
+grep -q 'wazuh-archives-%{+yyyy.MM.dd}' "$filebeat_conf" || {
+  echo "Archive index pattern is missing from Filebeat output routing" >&2
+  exit 1
+}
+grep -q 'wazuh-alerts-%{+yyyy.MM.dd}' "$filebeat_conf" || {
+  echo "Alert index pattern is missing from Filebeat output routing" >&2
+  exit 1
+}
 CONTAINER_SCRIPT
 
   # Restart the Manager/Filebeat container so both configuration changes take effect.
