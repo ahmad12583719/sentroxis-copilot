@@ -349,7 +349,57 @@ services:
       - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem:/etc/nginx/certs/wazuh-dashboard-key.pem:ro
     depends_on:
       - wazuh.dashboard
+  wazuh.manager:
+    volumes:
+      - ./config/wazuh_cluster/filebeat.yml:/etc/filebeat/filebeat.yml
 YAML
+  # Keep Filebeat configuration on the host so Docker image initialization
+  # cannot discard the archive input on container recreation.
+  cat > config/wazuh_cluster/filebeat.yml <<'FILEBEAT'
+# Sentroxis Wazuh Filebeat configuration.
+filebeat.modules:
+  - module: wazuh
+    alerts:
+      enabled: true
+    archives:
+      enabled: false
+
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/archives/archives.json
+    tags: ["wazuh-archives"]
+
+setup.template.json.enabled: true
+setup.template.json.path: '/etc/filebeat/wazuh-template.json'
+setup.template.json.name: 'wazuh'
+setup.template.overwrite: true
+setup.ilm.enabled: false
+
+output.elasticsearch:
+  indices:
+    - index: "wazuh-archives-%{+yyyy.MM.dd}"
+      when.contains:
+        tags: "wazuh-archives"
+    - index: "wazuh-alerts-%{+yyyy.MM.dd}"
+  hosts: ['https://wazuh.indexer:9200']
+  #username:
+  #password:
+  #ssl.verification_mode:
+  #ssl.certificate_authorities:
+  #ssl.certificate:
+  #ssl.key:
+
+logging.metrics.enabled: false
+seccomp:
+  default_action: allow
+  syscalls:
+  - action: allow
+    names:
+    - rseq
+FILEBEAT
+  sed -i.bak 's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' config/wazuh_cluster/wazuh_manager.conf
   cat > config/wazuh_dashboard/sentroxis-nginx.conf <<'NGINX'
 server {
     listen 443 ssl;
@@ -453,80 +503,6 @@ PY
   compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
 
   # Configure archive collection inside the Dockerized Wazuh Manager. The
-  # manager container also runs Filebeat, so do not use host paths/systemd.
-  local manager_container
-  manager_container="$(compose ps -q wazuh.manager)"
-  [[ -n "$manager_container" ]] || fatal "Could not find the running Wazuh Manager container."
-  docker exec "$manager_container" bash -s <<'CONTAINER_SCRIPT'
-set -Eeuo pipefail
-
-# Enable continuous JSON log archiving, creating a backup inside the container.
-sed -i.bak \
-  's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
-  /var/ossec/etc/ossec.conf
-
-# Bypass the Wazuh module system, which the image entrypoint may reset. Add a
-# standard Filebeat input directly to the main configuration instead.
-filebeat_conf=/etc/filebeat/filebeat.yml
-if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$filebeat_conf"; then
-  cat <<'EOF' >> "$filebeat_conf"
-
-# SENTROXIS_CUSTOM_ARCHIVE_INPUT
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/ossec/logs/archives/archives.json
-    tags: ["wazuh-archives"]
-EOF
-fi
-if ! grep -q '^filebeat.inputs:$' "$filebeat_conf" || ! grep -q '/var/ossec/logs/archives/archives.json' "$filebeat_conf"; then
-  echo "Failed to configure the custom Wazuh archives Filebeat input" >&2
-  exit 1
-}
-
-grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
-  echo "Failed to enable JSON log archiving" >&2
-  exit 1
-}
-grep -A6 '^filebeat.inputs:$' "$filebeat_conf" | grep -q 'wazuh-archives' || {
-  echo "Failed to tag custom Filebeat archive events" >&2
-  exit 1
-}
-
-# Route archive-tagged events to wazuh-archives-* and all other events to the
-# standard wazuh-alerts-* daily index. The Wazuh Docker image runs Filebeat in
-# the Manager container, so this edits the active output configuration there.
-if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
-  # Insert the conditional indices directly after output.elasticsearch or
-  # output.opensearch; the container init script preserves these lines.
-  sed -i '/^output\.\(elasticsearch\|opensearch\):[[:space:]]*$/a\
-  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING\
-  indices:\
-    - index: "wazuh-archives-%{+yyyy.MM.dd}"\
-      when.contains:\
-        tags: "wazuh-archives"\
-    - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$filebeat_conf"
-fi
-
-grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf" || {
-  echo "Failed to configure Filebeat archive index routing" >&2
-  exit 1
-}
-grep -q 'wazuh-archives-%{+yyyy.MM.dd}' "$filebeat_conf" || {
-  echo "Archive index pattern is missing from Filebeat output routing" >&2
-  exit 1
-}
-grep -q 'wazuh-alerts-%{+yyyy.MM.dd}' "$filebeat_conf" || {
-  echo "Alert index pattern is missing from Filebeat output routing" >&2
-  exit 1
-}
-CONTAINER_SCRIPT
-
-  # Reload only Filebeat. Do not restart the container: its s6 boot scripts
-  # would restore the default module configuration before Filebeat starts.
-  docker exec "$manager_container" pkill filebeat
-
   log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
   local api_code=""
