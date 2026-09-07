@@ -231,7 +231,47 @@ prepare_stack() {
   # installer owns these four files, so restore only them from the pinned tag;
   # certificates, volumes, and other operator files remain untouched.
   git -C "$WAZUH_HOME" checkout -- single-node/docker-compose.yml single-node/config/wazuh_indexer/internal_users.yml single-node/config/wazuh_dashboard/wazuh.yml single-node/config/wazuh_dashboard/opensearch_dashboards.yml
+  patch_filebeat_templates
   cd "$WAZUH_HOME/single-node"
+}
+
+patch_filebeat_template() {
+  local file="$1"
+  [[ -f "$file" ]] || fatal "Filebeat template is missing: $file"
+  if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$file"; then
+    cat >> "$file" <<'EOF'
+
+# SENTROXIS_CUSTOM_ARCHIVE_INPUT
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/archives/archives.json
+    tags: ["wazuh-archives"]
+EOF
+  fi
+  if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$file"; then
+    sed -i '/^output\.\(elasticsearch\|opensearch\):[[:space:]]*$/a\
+  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING\
+  indices:\
+    - index: "wazuh-archives-%{+yyyy.MM.dd}"\
+      when.contains:\
+        tags: "wazuh-archives"\
+    - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$file"
+  fi
+  grep -q '/var/ossec/logs/archives/archives.json' "$file" || fatal "Archive input was not added to $file"
+  grep -q 'wazuh-archives-%{+yyyy.MM.dd}' "$file" || fatal "Archive routing was not added to $file"
+  grep -q 'wazuh-alerts-%{+yyyy.MM.dd}' "$file" || fatal "Alert routing was not added to $file"
+}
+
+patch_filebeat_templates() {
+  local build_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml"
+  local single_node_template="${WAZUH_HOME}/single-node/config/wazuh_cluster/filebeat.yml"
+  [[ -f "$build_template" ]] || fatal "Pinned Wazuh checkout lacks the Filebeat build template."
+  mkdir -p "$(dirname "$single_node_template")"
+  [[ -f "$single_node_template" ]] || cp -p "$build_template" "$single_node_template"
+  patch_filebeat_template "$single_node_template"
+  patch_filebeat_template "$build_template"
 }
 
 generate_bcrypt_hash() {
