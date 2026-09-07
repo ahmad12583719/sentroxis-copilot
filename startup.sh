@@ -19,9 +19,35 @@ repair_wazuh_ownership() {
 }
 repair_wazuh_ownership
 
-# Wazuh is an optional external integration. This startup script does not
-# install, require, or start Wazuh services. Configure its API variables only
-# when Wazuh telemetry is available for this deployment.
+wait_for_wazuh_endpoint() {
+  local name="$1" url="$2" pattern="$3" attempt code
+  printf '==> Waiting for %s\n' "$name"
+  for attempt in {1..36}; do
+    code="$(curl --silent --show-error --insecure --connect-timeout 3 --max-time 5 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null || true)"
+    if [[ "$code" =~ $pattern ]]; then
+      printf '    %s ready (HTTP %s)\n' "$name" "$code"
+      return 0
+    fi
+    sleep 5
+  done
+  printf 'ERROR: %s did not become ready at %s\n' "$name" "$url" >&2
+  return 1
+}
+
+start_and_check_wazuh() {
+  local wazuh_dir="$ROOT_DIR/.wazuh/single-node"
+  [[ -f "$wazuh_dir/docker-compose.yml" && -f "$wazuh_dir/docker-compose.sentroxis.yml" ]] || return 0
+  command -v docker >/dev/null 2>&1 || return 0
+  printf '==> Starting the Wazuh Compose stack\n'
+  (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml up -d --build)
+  wait_for_wazuh_endpoint "OpenSearch indexer" "https://127.0.0.1:9200/" '^(200|401|403)$'
+  wait_for_wazuh_endpoint "Wazuh Manager API" "https://127.0.0.1:55000/" '^401$'
+  wait_for_wazuh_endpoint "Wazuh dashboard" "https://127.0.0.1/" '^[23][0-9][0-9]$'
+}
+start_and_check_wazuh
+
+# Wazuh is an optional external integration. When its local Compose deployment
+# exists, startup.sh starts it and waits for all required health endpoints.
 
 VELOCIRAPTOR_DIR="$ROOT_DIR/backend/runtime/velociraptor"
 VELOCIRAPTOR_BIN="$VELOCIRAPTOR_DIR/velociraptor"

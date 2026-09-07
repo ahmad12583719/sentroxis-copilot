@@ -382,14 +382,41 @@ configure_local_proxy() {
   (( DRY_RUN )) && { log "DRY-RUN: would configure the local HTTPS proxy for the embedded Wazuh dashboard."; return; }
   cat > docker-compose.sentroxis.yml <<'YAML'
 services:
+  wazuh.indexer:
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kfsS --max-time 5 https://127.0.0.1:9200/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
   wazuh.manager:
     build:
       context: ./build-docker-images/wazuh-manager
       dockerfile: Dockerfile.sentroxis
     image: sentroxis/wazuh-manager:4.7.5-archives
+    depends_on:
+      wazuh.indexer:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "code=$$(curl -ksS --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1:55000/ || true); test \"$$code\" = 401"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
   wazuh.dashboard:
     expose:
       - "5601"
+    depends_on:
+      wazuh.indexer:
+        condition: service_healthy
+      wazuh.manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kfsS --max-time 5 https://127.0.0.1:5601/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
   wazuh.dashboard_proxy:
     image: nginx:1.27-alpine
     hostname: wazuh.dashboard_proxy
@@ -401,7 +428,8 @@ services:
       - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard.pem:/etc/nginx/certs/wazuh-dashboard.pem:ro
       - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem:/etc/nginx/certs/wazuh-dashboard-key.pem:ro
     depends_on:
-      - wazuh.dashboard
+      wazuh.dashboard:
+        condition: service_healthy
 YAML
   sed -i.bak 's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' config/wazuh_cluster/wazuh_manager.conf
   cat > config/wazuh_dashboard/sentroxis-nginx.conf <<'NGINX'
@@ -479,6 +507,21 @@ initialize_indexer_security() {
   fatal "Wazuh indexer security initialization failed; inspect: docker compose logs --tail=200 wazuh.indexer"
 }
 
+wait_for_wazuh_http() {
+  local name="$1" url="$2" expected="$3" attempts="$4" code attempt
+  log "Waiting for $name to become ready."
+  for (( attempt=1; attempt<=attempts; attempt++ )); do
+    code="$(curl --silent --show-error --insecure --connect-timeout 3 --max-time 5 --output /dev/null --write-out '%{http_code}' "$url" 2>/dev/null || true)"
+    if [[ "$code" =~ $expected ]]; then
+      log "$name is ready (HTTP $code)."
+      return 0
+    fi
+    sleep 5
+  done
+  compose ps
+  fatal "$name did not become ready; inspect: docker compose logs --tail=200 wazuh.indexer wazuh.manager wazuh.dashboard"
+}
+
 validate_stack() {
   (( DRY_RUN )) && { log "DRY-RUN: would run docker compose config and health checks."; return; }
   compose config >/dev/null || fatal "Generated Compose configuration is invalid."
@@ -489,6 +532,7 @@ validate_stack() {
   # Bootstrap the indexer before starting dashboard and manager. The official
   # image entrypoint intentionally leaves securityadmin disabled by default.
   compose up -d wazuh.indexer
+  wait_for_wazuh_http "Wazuh OpenSearch indexer" "https://127.0.0.1:9200/" '^(200|401|403)$' 36
   initialize_indexer_security
   if ! INDEXER_AUTH_USER=admin INDEXER_AUTH_PASSWORD="$WAZUH_INDEXER_PASSWORD" python3 - <<'PY'
 import base64
@@ -510,32 +554,10 @@ PY
   log "Indexer admin authentication verified."
   # Recreate dependent services after securityadmin so dashboard migrations do
   # not retain the pre-bootstrap 503 state from an earlier failed attempt.
-  compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
-
-  # Configure archive collection inside the Dockerized Wazuh Manager. The
-  log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
-  local i
-  local api_code=""
-  local dashboard_code=""
-  for i in {1..36}; do
-    api_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1:55000/" 2>/dev/null || true)"
-    dashboard_code="$(curl --silent --show-error --insecure --connect-timeout 3 --output /dev/null --write-out '%{http_code}' "https://127.0.0.1/" 2>/dev/null || true)"
-    if [[ "$api_code" == "401" && "$dashboard_code" =~ ^[2345][0-9][0-9]$ ]]; then break; fi
-    sleep 5
-  done
+  compose up -d --build --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
+  wait_for_wazuh_http "Wazuh Manager API" "https://127.0.0.1:55000/" '^401$' 36
+  wait_for_wazuh_http "Wazuh dashboard" "https://127.0.0.1/" '^[23][0-9][0-9]$' 36
   compose ps
-  if [[ "$api_code" == "401" ]]; then
-    log "Wazuh API is reachable and correctly requires authentication (HTTP 401)."
-  elif [[ "$api_code" =~ ^[2345][0-9][0-9]$ ]]; then
-    warn "Wazuh API returned HTTP $api_code; inspect authentication/configuration if requests fail."
-  else
-    warn "Wazuh API is not responding; inspect: docker compose logs --tail=200 wazuh.manager"
-  fi
-  if [[ "$dashboard_code" =~ ^[2345][0-9][0-9]$ ]]; then
-    log "Wazuh dashboard is reachable (HTTP $dashboard_code)."
-  else
-    warn "Wazuh dashboard is not ready; inspect: docker compose logs --tail=200 wazuh.dashboard wazuh.indexer"
-  fi
   log "Dashboard: https://$(hostname -I | awk '{print $1}')/ (self-signed certificate warning is expected for MVP/private-LAN use)."
   log "Sentroxis iframe access: local proxy enabled on the same HTTPS endpoint."
   log "API bind address: $WAZUH_API_BIND_ADDRESS:55000. Keep this port private and place it behind a firewall or private network for the secondary node."
