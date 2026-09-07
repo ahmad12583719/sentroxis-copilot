@@ -281,7 +281,6 @@ def run_wazuh(password: str) -> int:
             f"set -a; source {handoff}; set +a; exec {installer}",
         ]
         completed = subprocess.run(command, cwd=ROOT, check=False)
-        repair_wazuh_workspace()
     except FileNotFoundError:
         print("ERROR: sudo is not available; run the Wazuh installer manually with the required privileges.")
         return 1

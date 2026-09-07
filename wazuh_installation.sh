@@ -231,6 +231,9 @@ prepare_stack() {
   # installer owns these four files, so restore only them from the pinned tag;
   # certificates, volumes, and other operator files remain untouched.
   git -C "$WAZUH_HOME" checkout -- single-node/docker-compose.yml single-node/config/wazuh_indexer/internal_users.yml single-node/config/wazuh_dashboard/wazuh.yml single-node/config/wazuh_dashboard/opensearch_dashboards.yml
+  # The custom image owns /etc/filebeat; the upstream named volume would hide
+  # that baked layer and reintroduce stale, uncustomized configuration.
+  sed -i '\#filebeat_etc:/etc/filebeat#d' "$WAZUH_HOME/single-node/docker-compose.yml"
   patch_filebeat_templates
   cd "$WAZUH_HOME/single-node"
 }
@@ -274,16 +277,10 @@ patch_filebeat_templates() {
   [[ -f "$single_node_template" ]] || cp -p "$build_template" "$single_node_template"
   patch_filebeat_template "$single_node_template"
   patch_filebeat_template "$build_template"
-  patch_filebeat_entrypoint "$entrypoint"
-}
-patch_filebeat_entrypoint() {
-  local file="$1"
-  if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_INIT$' "$file"; then
-    cat >> "$file" <<'EOF'
+  cp -p "$entrypoint" "${WAZUH_HOME}/build-docker-images/wazuh-manager/1-config-filebeat.sentroxis"
+  cat >> "${WAZUH_HOME}/build-docker-images/wazuh-manager/1-config-filebeat.sentroxis" <<'EOF'
 
 # SENTROXIS_FILEBEAT_ARCHIVE_INIT
-# Apply after the Wazuh image's connection/security substitutions so every
-# generated /etc/filebeat/filebeat.yml retains the archive telemetry config.
 filebeat_conf=/etc/filebeat/filebeat.yml
 if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$filebeat_conf"; then
   cat <<'FILEBEAT_ARCHIVE_INPUT' >> "$filebeat_conf"
@@ -307,8 +304,13 @@ if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
     - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$filebeat_conf"
 fi
 EOF
-  fi
-  grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_INIT$' "$file" || fatal "Filebeat entrypoint patch was not added to $file"
+  cat > "${WAZUH_HOME}/build-docker-images/wazuh-manager/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-manager:4.7.5
+COPY config/filebeat.yml /etc/filebeat/filebeat.yml
+COPY 1-config-filebeat.sentroxis /etc/cont-init.d/1-config-filebeat
+RUN chmod 755 /etc/cont-init.d/1-config-filebeat
+RUN chmod go-w /etc/filebeat/filebeat.yml
+DOCKERFILE
 }
 
 generate_bcrypt_hash() {
@@ -411,6 +413,11 @@ configure_local_proxy() {
   (( DRY_RUN )) && { log "DRY-RUN: would configure the local HTTPS proxy for the embedded Wazuh dashboard."; return; }
   cat > docker-compose.sentroxis.yml <<'YAML'
 services:
+  wazuh.manager:
+    build:
+      context: ./build-docker-images/wazuh-manager
+      dockerfile: Dockerfile.sentroxis
+    image: sentroxis/wazuh-manager:4.7.5-archives
   wazuh.dashboard:
     expose:
       - "5601"
