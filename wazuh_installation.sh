@@ -349,56 +349,7 @@ services:
       - ./config/wazuh_indexer_ssl_certs/wazuh.dashboard-key.pem:/etc/nginx/certs/wazuh-dashboard-key.pem:ro
     depends_on:
       - wazuh.dashboard
-  wazuh.manager:
-    volumes:
-      - ./config/wazuh_cluster/filebeat.yml:/etc/filebeat/filebeat.yml
 YAML
-  # Keep Filebeat configuration on the host so Docker image initialization
-  # cannot discard the archive input on container recreation.
-  cat > config/wazuh_cluster/filebeat.yml <<'FILEBEAT'
-# Sentroxis Wazuh Filebeat configuration.
-filebeat.modules:
-  - module: wazuh
-    alerts:
-      enabled: true
-    archives:
-      enabled: false
-
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/ossec/logs/archives/archives.json
-    tags: ["wazuh-archives"]
-
-setup.template.json.enabled: true
-setup.template.json.path: '/etc/filebeat/wazuh-template.json'
-setup.template.json.name: 'wazuh'
-setup.template.overwrite: true
-setup.ilm.enabled: false
-
-output.elasticsearch:
-  indices:
-    - index: "wazuh-archives-%{+yyyy.MM.dd}"
-      when.contains:
-        tags: "wazuh-archives"
-    - index: "wazuh-alerts-%{+yyyy.MM.dd}"
-  hosts: ['https://wazuh.indexer:9200']
-  #username:
-  #password:
-  #ssl.verification_mode:
-  #ssl.certificate_authorities:
-  #ssl.certificate:
-  #ssl.key:
-
-logging.metrics.enabled: false
-seccomp:
-  default_action: allow
-  syscalls:
-  - action: allow
-    names:
-    - rseq
-FILEBEAT
   sed -i.bak 's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' config/wazuh_cluster/wazuh_manager.conf
   cat > config/wazuh_dashboard/sentroxis-nginx.conf <<'NGINX'
 server {

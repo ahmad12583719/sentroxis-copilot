@@ -211,5 +211,44 @@ if ! curl -kfsS --max-time 2 https://127.0.0.1:5173/ >/dev/null 2>&1; then
   tail -n 40 "$FRONTEND_LOG" >&2 || true
   exit 1
 fi
+if [[ -f "$ROOT_DIR/.wazuh/single-node/docker-compose.yml" && -f "$ROOT_DIR/.wazuh/single-node/docker-compose.sentroxis.yml" ]] && command -v docker >/dev/null 2>&1; then
+  printf '==> Applying post-boot Wazuh Filebeat archive configuration\n'
+  sleep 20
+  WAZUH_COMPOSE_DIR="$ROOT_DIR/.wazuh/single-node"
+  WAZUH_MANAGER_CONTAINER="$(cd "$WAZUH_COMPOSE_DIR" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml ps -q wazuh.manager)"
+  if [[ -n "$WAZUH_MANAGER_CONTAINER" ]]; then
+    docker exec "$WAZUH_MANAGER_CONTAINER" bash -s <<'WAZUH_FILEBEAT'
+set -Eeuo pipefail
+filebeat_conf=/etc/filebeat/filebeat.yml
+if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$filebeat_conf"; then
+  cat <<'EOF' >> "$filebeat_conf"
+
+# SENTROXIS_CUSTOM_ARCHIVE_INPUT
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/archives/archives.json
+    tags: ["wazuh-archives"]
+EOF
+fi
+if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
+  sed -i '/^output\.\(elasticsearch\|opensearch\):[[:space:]]*$/a\
+  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING\
+  indices:\
+    - index: "wazuh-archives-%{+yyyy.MM.dd}"\
+      when.contains:\
+        tags: "wazuh-archives"\
+    - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$filebeat_conf"
+fi
+grep -q '/var/ossec/logs/archives/archives.json' "$filebeat_conf"
+grep -q 'wazuh-archives-%{+yyyy.MM.dd}' "$filebeat_conf"
+grep -q 'wazuh-alerts-%{+yyyy.MM.dd}' "$filebeat_conf"
+WAZUH_FILEBEAT
+    docker exec "$WAZUH_MANAGER_CONTAINER" pkill filebeat
+  else
+    printf 'WARNING: Wazuh Manager container is not running; skipping archive injection\n' >&2
+  fi
+fi
 printf 'Backend:       http://localhost:8000 (ready)\nFrontend:      https://localhost:5173 (ready)\nVelociraptor:  project-local process (see dashboard status)\nWazuh:         optional external integration\nLogs:          %s and %s\nPress Ctrl+C to stop all local processes.\n' "$BACKEND_LOG" "$FRONTEND_LOG"
 wait
