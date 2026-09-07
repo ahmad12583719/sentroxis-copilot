@@ -452,19 +452,59 @@ PY
   # not retain the pre-bootstrap 503 state from an earlier failed attempt.
   compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
 
-  # Enable continuous JSON log archiving, creating a backup of ossec.conf
-  sudo sed -i.bak \
-    's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
-    /var/ossec/etc/ossec.conf
+  # Configure archive collection inside the Dockerized Wazuh Manager. The
+  # manager container also runs Filebeat, so do not use host paths/systemd.
+  local manager_container
+  manager_container="$(compose ps -q wazuh.manager)"
+  [[ -n "$manager_container" ]] || fatal "Could not find the running Wazuh Manager container."
+  docker exec "$manager_container" bash -s <<'CONTAINER_SCRIPT'
+set -Eeuo pipefail
 
-  # Restart the Wazuh Manager so the configuration change takes effect
-  sudo systemctl restart wazuh-manager
+# Enable continuous JSON log archiving, creating a backup inside the container.
+sed -i.bak \
+  's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
+  /var/ossec/etc/ossec.conf
 
-  # Optional validation
-  grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
-    echo "Failed to enable JSON log archiving"
-    exit 1
-  }
+# Enable the Wazuh Filebeat archives input and label its events for strict
+# wazuh-archives-* output routing in the final Filebeat output configuration.
+filebeat_conf=/etc/filebeat/filebeat.yml
+sed -i '/^    archives:[[:space:]]*$/,/^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ s/^      enabled:[[:space:]]*false/      enabled: true/' "$filebeat_conf"
+if ! grep -q '^    archives:[[:space:]]*$' "$filebeat_conf"; then
+  echo "Filebeat Wazuh archives module was not found in $filebeat_conf" >&2
+  exit 1
+fi
+if ! grep -q 'wazuh-archives' "$filebeat_conf"; then
+  awk '
+    /^    archives:[[:space:]]*$/ { in_archives=1; found=1 }
+    in_archives && /^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ && $0 !~ /^    archives:/ { in_archives=0 }
+    in_archives && /^      enabled:[[:space:]]*true[[:space:]]*$/ {
+      print
+      print "      tags: [\"wazuh-archives\"]"
+      tagged=1
+      next
+    }
+    { print }
+    END { if (!found || !tagged) exit 1 }
+  ' "$filebeat_conf" > "$filebeat_conf.tmp"
+  mv "$filebeat_conf.tmp" "$filebeat_conf"
+fi
+
+grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
+  echo "Failed to enable JSON log archiving" >&2
+  exit 1
+}
+grep -A3 '^    archives:[[:space:]]*$' "$filebeat_conf" | grep -q 'enabled: true' || {
+  echo "Failed to enable the Filebeat archives input" >&2
+  exit 1
+}
+grep -q 'wazuh-archives' "$filebeat_conf" || {
+  echo "Failed to tag Filebeat archive events" >&2
+  exit 1
+}
+CONTAINER_SCRIPT
+
+  # Restart the Manager/Filebeat container so both configuration changes take effect.
+  docker restart "$manager_container" >/dev/null
 
   log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
