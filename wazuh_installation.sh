@@ -473,43 +473,17 @@ module_conf=/etc/filebeat/modules.d/wazuh.yml
   echo "Wazuh Filebeat module file was not found at $module_conf" >&2
   exit 1
 }
-awk '
-  /^[[:space:]]*archives:[[:space:]]*$/ {
-    in_archives=1
-    print
-    next
-  }
-  in_archives && /^[[:space:]]+enabled:[[:space:]]*(false|true)[[:space:]]*$/ {
-    sub(/(false|true)[[:space:]]*$/, "true")
-    print
-    enabled=1
-    next
-  }
-  in_archives && /^[[:space:]]+[A-Za-z0-9_-]+:[[:space:]]*$/ {
-    in_archives=0
-  }
-  { print }
-  END { if (!enabled) exit 1 }
-' "$module_conf" > "$module_conf.tmp"
-mv "$module_conf.tmp" "$module_conf"
+# Apply the archive setting directly in modules.d; this is the file Filebeat
+# reports as its loaded Wazuh module configuration.
+sed -i '/^[[:space:]]*archives:[[:space:]]*$/,/^[[:space:]]*enabled:[[:space:]]*false[[:space:]]*$/ s/^[[:space:]]*enabled:[[:space:]]*false[[:space:]]*$/      enabled: true/' "$module_conf"
 if ! grep -A3 '^[[:space:]]*archives:[[:space:]]*$' "$module_conf" | grep -q 'enabled:[[:space:]]*true'; then
   echo "Failed to enable the Wazuh Filebeat archives module in $module_conf" >&2
   exit 1
 fi
 if ! grep -q 'wazuh-archives' "$module_conf"; then
-  awk '
-    /^[[:space:]]*archives:[[:space:]]*$/ { in_archives=1; found=1 }
-    in_archives && /^[[:space:]]+enabled:[[:space:]]*true[[:space:]]*$/ {
-      print
-      print "      tags: [\"wazuh-archives\"]"
-      tagged=1
-      next
-    }
-    in_archives && /^    [A-Za-z0-9_-]+:[[:space:]]*$/ { in_archives=0 }
-    { print }
-    END { if (!found || !tagged) exit 1 }
-  ' "$module_conf" > "$module_conf.tmp"
-  mv "$module_conf.tmp" "$module_conf"
+  sed -i '/^[[:space:]]*archives:[[:space:]]*$/,/^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ { /^[[:space:]]*enabled:[[:space:]]*true[[:space:]]*$/a\
+      tags: ["wazuh-archives"]
+  }' "$module_conf"
 fi
 
 grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
@@ -529,22 +503,15 @@ grep -q 'wazuh-archives' "$module_conf" || {
 # standard wazuh-alerts-* daily index. The Wazuh Docker image runs Filebeat in
 # the Manager container, so this edits the active output configuration there.
 if ! grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf"; then
-  awk '
-    /^output\.(elasticsearch|opensearch):[[:space:]]*$/ {
-      print
-      print "# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING"
-      print "  indices:"
-      print "    - index: \"wazuh-archives-%{+yyyy.MM.dd}\""
-      print "      when.contains:"
-      print "        tags: \"wazuh-archives\""
-      print "    - index: \"wazuh-alerts-%{+yyyy.MM.dd}\""
-      found_output=1
-      next
-    }
-    { print }
-    END { if (!found_output) exit 1 }
-  ' "$filebeat_conf" > "$filebeat_conf.tmp"
-  mv "$filebeat_conf.tmp" "$filebeat_conf"
+  # Insert the conditional indices directly after output.elasticsearch or
+  # output.opensearch; the container init script preserves these lines.
+  sed -i '/^output\.\(elasticsearch\|opensearch\):[[:space:]]*$/a\
+  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING\
+  indices:\
+    - index: "wazuh-archives-%{+yyyy.MM.dd}"\
+      when.contains:\
+        tags: "wazuh-archives"\
+    - index: "wazuh-alerts-%{+yyyy.MM.dd}"' "$filebeat_conf"
 fi
 
 grep -q '^# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING$' "$filebeat_conf" || {
@@ -561,8 +528,9 @@ grep -q 'wazuh-alerts-%{+yyyy.MM.dd}' "$filebeat_conf" || {
 }
 CONTAINER_SCRIPT
 
-  # Restart the Manager/Filebeat container so both configuration changes take effect.
-  docker restart "$manager_container" >/dev/null
+  # Reload only Filebeat. Do not restart the container: its s6 boot scripts
+  # would restore the default module configuration before Filebeat starts.
+  docker exec "$manager_container" pkill filebeat
 
   log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
