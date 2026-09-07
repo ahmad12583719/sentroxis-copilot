@@ -451,6 +451,21 @@ PY
   # Recreate dependent services after securityadmin so dashboard migrations do
   # not retain the pre-bootstrap 503 state from an earlier failed attempt.
   compose up -d --force-recreate wazuh.manager wazuh.dashboard wazuh.dashboard_proxy
+
+  # Enable continuous JSON log archiving, creating a backup of ossec.conf
+  sudo sed -i.bak \
+    's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
+    /var/ossec/etc/ossec.conf
+
+  # Restart the Wazuh Manager so the configuration change takes effect
+  sudo systemctl restart wazuh-manager
+
+  # Optional validation
+  grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
+    echo "Failed to enable JSON log archiving"
+    exit 1
+  }
+
   log "Waiting for Wazuh API and dashboard readiness (up to 180 seconds)."
   local i
   local api_code=""
