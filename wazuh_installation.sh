@@ -465,37 +465,32 @@ sed -i.bak \
   's#<logall_json>no</logall_json>#<logall_json>yes</logall_json>#' \
   /var/ossec/etc/ossec.conf
 
-# Enable the Wazuh Filebeat archives input in the active module file. The
-# Wazuh Docker image loads this file from modules.d at startup.
+# Bypass the Wazuh module system, which the image entrypoint may reset. Add a
+# standard Filebeat input directly to the main configuration instead.
 filebeat_conf=/etc/filebeat/filebeat.yml
-module_conf=/etc/filebeat/modules.d/wazuh.yml
-[[ -f "$module_conf" ]] || {
-  echo "Wazuh Filebeat module file was not found at $module_conf" >&2
+if ! grep -q '^# SENTROXIS_CUSTOM_ARCHIVE_INPUT$' "$filebeat_conf"; then
+  cat <<'EOF' >> "$filebeat_conf"
+
+# SENTROXIS_CUSTOM_ARCHIVE_INPUT
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/ossec/logs/archives/archives.json
+    tags: ["wazuh-archives"]
+EOF
+fi
+if ! grep -q '^filebeat.inputs:$' "$filebeat_conf" || ! grep -q '/var/ossec/logs/archives/archives.json' "$filebeat_conf"; then
+  echo "Failed to configure the custom Wazuh archives Filebeat input" >&2
   exit 1
 }
-# Apply the archive setting directly in modules.d; this is the file Filebeat
-# reports as its loaded Wazuh module configuration.
-sed -i '/^[[:space:]]*archives:[[:space:]]*$/,/^[[:space:]]*enabled:[[:space:]]*false[[:space:]]*$/ s/^[[:space:]]*enabled:[[:space:]]*false[[:space:]]*$/      enabled: true/' "$module_conf"
-if ! grep -A3 '^[[:space:]]*archives:[[:space:]]*$' "$module_conf" | grep -q 'enabled:[[:space:]]*true'; then
-  echo "Failed to enable the Wazuh Filebeat archives module in $module_conf" >&2
-  exit 1
-fi
-if ! grep -q 'wazuh-archives' "$module_conf"; then
-  sed -i '/^[[:space:]]*archives:[[:space:]]*$/,/^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ { /^[[:space:]]*enabled:[[:space:]]*true[[:space:]]*$/a\
-      tags: ["wazuh-archives"]
-  }' "$module_conf"
-fi
 
 grep -q '<logall_json>yes</logall_json>' /var/ossec/etc/ossec.conf || {
   echo "Failed to enable JSON log archiving" >&2
   exit 1
 }
-grep -A3 '^[[:space:]]*archives:[[:space:]]*$' "$module_conf" | grep -q 'enabled:[[:space:]]*true' || {
-  echo "Failed to enable the Filebeat archives input" >&2
-  exit 1
-}
-grep -q 'wazuh-archives' "$module_conf" || {
-  echo "Failed to tag Filebeat archive events" >&2
+grep -A6 '^filebeat.inputs:$' "$filebeat_conf" | grep -q 'wazuh-archives' || {
+  echo "Failed to tag custom Filebeat archive events" >&2
   exit 1
 }
 
