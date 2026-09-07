@@ -468,7 +468,10 @@ sed -i.bak \
 # Enable the Wazuh Filebeat archives input and label its events for strict
 # wazuh-archives-* output routing in the final Filebeat output configuration.
 filebeat_conf=/etc/filebeat/filebeat.yml
-sed -i '/^    archives:[[:space:]]*$/,/^    [A-Za-z0-9_-][A-Za-z0-9_-]*:[[:space:]]*$/ s/^      enabled:[[:space:]]*false/      enabled: true/' "$filebeat_conf"
+# In the pinned Wazuh 4.7.x image, alerts is true and archives is the only
+# module entry with `enabled: false`, so this direct substitution is safe and
+# is not affected by sed's same-line range-end behavior.
+sed -i 's/^      enabled:[[:space:]]*false[[:space:]]*$/      enabled: true/' "$filebeat_conf"
 if ! grep -q '^    archives:[[:space:]]*$' "$filebeat_conf"; then
   echo "Filebeat Wazuh archives module was not found in $filebeat_conf" >&2
   exit 1
