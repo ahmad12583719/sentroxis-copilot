@@ -447,7 +447,21 @@ server {
     # This scoped local proxy permits only local Sentroxis origins.
     proxy_hide_header X-Frame-Options;
     proxy_hide_header Content-Security-Policy;
-    add_header Content-Security-Policy "frame-ancestors 'self' http://localhost:* http://127.0.0.1:*" always;
+    add_header Content-Security-Policy "frame-ancestors 'self'" always;
+
+    location /wazuh/ {
+        proxy_pass https://wazuh.dashboard:5601/;
+        proxy_ssl_verify off;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Prefix /wazuh;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_redirect https://wazuh.dashboard:5601/ /wazuh/;
+    }
 
     location / {
         proxy_pass https://wazuh.dashboard:5601;
