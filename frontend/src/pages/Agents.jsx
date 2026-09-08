@@ -3,7 +3,7 @@ import { Archive, CheckCircle2, Download, FileKey2, Info, Loader2, Package, Shie
 import { authRequest } from '../auth/AuthProvider'
 
 const targets = [
-  { id: 'linux-amd64', label: 'Linux amd64', description: 'Executable client with shell commands for interactive or service deployment.' },
+  { id: 'linux-amd64', label: 'Linux amd64', description: 'Executable client plus a Debian package, repacked with the generated client configuration for service deployment.' },
   { id: 'windows-amd64', label: 'Windows amd64', description: 'Executable client plus an official MSI, repacked with the generated client configuration when supported.' },
 ]
 
@@ -58,8 +58,8 @@ export default function Agents() {
     <section className="endpoint-targets" aria-label="Endpoint package targets">
       {targets.map((target) => { const bundle = bundles[target.id]; return <section className="panel endpoint-target-card" key={target.id}>
         <div className="panel-heading"><div><p className="eyebrow">Client target</p><h2>{target.label}</h2></div><Package size={18} /></div>
-        <div className="endpoint-card-body"><p>{target.description}</p><div className="endpoint-contents"><span><Archive size={14} /> Official binary</span><span><FileKey2 size={14} /> client.config.yaml</span><span><FileKey2 size={14} /> api.config.yaml</span><span><Terminal size={14} /> README.md</span>{target.id === 'windows-amd64' && <span><Package size={14} /> MSI when available</span>}</div>
-          {bundle ? <div className="endpoint-download-row"><div><strong>{bundle.filename}</strong><small>{bundle.includes_msi ? `Windows MSI: ${bundle.msi_mode}` : 'ZIP bundle generated'}</small></div><a className="button primary" href={bundle.download_url}><Download size={15} /> Download ZIP</a></div> : <button className="button primary" onClick={() => generateBundle(target.id)} disabled={!ready || Boolean(busy)}>{busy === target.id ? <Loader2 className="spin" size={15} /> : <Archive size={15} />} {busy === target.id ? 'Building bundle…' : 'Generate ZIP package'}</button>}
+        <div className="endpoint-card-body"><p>{target.description}</p><div className="endpoint-contents"><span><Archive size={14} /> Official binary</span><span><FileKey2 size={14} /> client.config.yaml</span><span><FileKey2 size={14} /> api.config.yaml</span><span><Terminal size={14} /> README.md</span>{target.id === 'windows-amd64' && <span><Package size={14} /> MSI when available</span>}{target.id === 'linux-amd64' && <span><Package size={14} /> .deb package</span>}</div>
+          {bundle ? <div className="endpoint-download-row"><div><strong>{bundle.filename}</strong><small>{bundle.includes_msi ? `Windows MSI: ${bundle.msi_mode}` : bundle.includes_deb ? `Linux Debian package: ${bundle.deb_mode}` : 'ZIP bundle generated'}</small></div><a className="button primary" href={bundle.download_url}><Download size={15} /> Download ZIP</a></div> : <button className="button primary" onClick={() => generateBundle(target.id)} disabled={!ready || Boolean(busy)}>{busy === target.id ? <Loader2 className="spin" size={15} /> : <Archive size={15} />} {busy === target.id ? 'Building bundle…' : 'Generate ZIP package'}</button>}
         </div>
       </section> })}
     </section>

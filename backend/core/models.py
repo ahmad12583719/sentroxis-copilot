@@ -395,6 +395,8 @@ class VelociraptorBundleArtifact(BaseModel):
     download_url: str
     includes_msi: bool = False
     msi_mode: Literal["repacked", "official"] | None = None
+    includes_deb: bool = False
+    deb_mode: Literal["packaged"] | None = None
 
 
 class VelociraptorBundlesResponse(BaseModel):
@@ -412,6 +414,8 @@ class VelociraptorBundleResponse(BaseModel):
     download_url: str
     includes_msi: bool = False
     msi_mode: Literal["repacked", "official"] | None = None
+    includes_deb: bool = False
+    deb_mode: Literal["packaged"] | None = None
     message: str
     audit_id: str
 

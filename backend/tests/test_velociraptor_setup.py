@@ -105,6 +105,8 @@ def test_generate_self_signed_config_creates_server_and_client_files(tmp_path, m
         elif command[1:3] == ["config", "generate"]:
             captured_merge.update(json.loads(Path(command[-1]).read_text(encoding="utf-8")))
             kwargs["stdout"].write(b"Frontend:\n  bind_port: 8010\n")
+        elif command[3:5] == ["debian", "client"]:
+            (Path(command[-1]) / f"velociraptor_client_0.77.2_amd64.deb").write_bytes(b"packaged-client-deb")
         elif command[4] == "client":
             assert command[1:4] == ["--config", str(runtime_dir / "server.config.yaml"), "config"]
             kwargs["stdout"].write(b"Client:\n  server_urls:\n  - https://192.168.1.20:8010/\n")
@@ -258,6 +260,7 @@ def test_run_server_prepares_logging_directory_and_uses_verbose_mode(tmp_path, m
 
 def test_build_endpoint_bundle_contains_required_linux_artifacts(tmp_path, monkeypatch):
     import hashlib
+    from types import SimpleNamespace
     from zipfile import ZipFile
     from backend.core.models import VelociraptorAsset
 
@@ -296,9 +299,23 @@ def test_build_endpoint_bundle_contains_required_linux_artifacts(tmp_path, monke
     )
     monkeypatch.setattr(service, "_asset", lambda platform: asset)
 
+    captured_deb_command = {}
+
+    def fake_run(command, **kwargs):
+        if command[3:5] == ["debian", "client"]:
+            captured_deb_command["command"] = command
+            (Path(command[-1]) / f"velociraptor_client_{installation.version}_amd64.deb").write_bytes(b"packaged-client-deb")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("backend.core.velociraptor_setup.subprocess.run", fake_run)
+
     result = service.build_endpoint_bundle(VelociraptorPlatform.linux_amd64)
 
+    assert result["includes_deb"] is True
+    assert result["deb_mode"] == "packaged"
+    assert captured_deb_command["command"][:2] == [str(binary), "--config"]
     with ZipFile(result["path"]) as archive:
-        assert set(archive.namelist()) == {"velociraptor", "client.config.yaml", "api.config.yaml", "README.md"}
+        assert set(archive.namelist()) == {"velociraptor", "client.config.yaml", "api.config.yaml", "README.md", "velociraptor_client_0.77.2_amd64.deb"}
         assert b"strong-test-password" not in archive.read("README.md")
+        assert b"sudo dpkg -i velociraptor_client_*.deb" in archive.read("README.md")
         assert b"sudo ./velociraptor --config ./client.config.yaml client -v" in archive.read("README.md")

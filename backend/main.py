@@ -437,7 +437,7 @@ def generate_velociraptor_config(
         api_config_path=result["api_config_path"],
         frontend_url=result["frontend_url"],
         admin_username=result["admin_username"],
-        endpoint_bundles=[VelociraptorBundleArtifact(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode")}) for bundle in result["endpoint_bundles"]],
+        endpoint_bundles=[VelociraptorBundleArtifact(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode", "includes_deb", "deb_mode")}) for bundle in result["endpoint_bundles"]],
         message="Self-signed server, endpoint client, API client, and Linux/Windows endpoint ZIP configurations were generated. Frontend port is fixed at 8010.",
         audit_id=audit.id,
     )
@@ -508,8 +508,8 @@ def build_velociraptor_endpoint_bundle(request: VelociraptorPrepareRequest, prin
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    audit = save_audit(principal, "velociraptor.endpoint_bundle.created", bundle["filename"], {"platform": bundle["platform"], "includes_msi": str(bundle["includes_msi"])})
-    return VelociraptorBundleResponse(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode")}, message="Endpoint bundle created from verified/generated Velociraptor artifacts.", audit_id=audit.id)
+    audit = save_audit(principal, "velociraptor.endpoint_bundle.created", bundle["filename"], {"platform": bundle["platform"], "includes_msi": str(bundle["includes_msi"]), "includes_deb": str(bundle["includes_deb"])})
+    return VelociraptorBundleResponse(**{key: bundle[key] for key in ("platform", "version", "filename", "download_url", "includes_msi", "msi_mode", "includes_deb", "deb_mode")}, message="Endpoint bundle created from verified/generated Velociraptor artifacts.", audit_id=audit.id)
 
 
 @app.get("/api/velociraptor/endpoints/bundle/download/{platform}")

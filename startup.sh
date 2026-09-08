@@ -275,6 +275,10 @@ prepare_frontend_tls() {
 prepare_frontend_tls
 start_velociraptor
 
+printf '\n==> Building Velociraptor endpoint ZIP packages\n'
+PYTHONPATH="$ROOT_DIR" backend/.venv/bin/python backend/build_endpoint_bundles.py || printf 'WARNING: Endpoint bundle build step failed; download from the web UI after login if it still fails.\n'
+printf '    Bundles are hosted under Endpoint operations once config generation completes.\n'
+
 printf '\n==> Installing frontend dependencies\n'
 cd frontend
 npm install

@@ -256,6 +256,7 @@ class VelociraptorSetupService:
             (root / "client.config.yaml").write_bytes(client_config_path.read_bytes())
             (root / "api.config.yaml").write_bytes(api_config_path.read_bytes())
             msi_mode: str | None = None
+            deb_mode: str | None = None
             if platform == VelociraptorPlatform.windows_amd64:
                 msi_asset = f"velociraptor-v{installation.version}-windows-amd64.msi"
                 msi_url = f"https://github.com/Velocidex/velociraptor/releases/download/v{installation.version}/{msi_asset}"
@@ -281,14 +282,26 @@ class VelociraptorSetupService:
                         msi_mode = "official"
                 except (OSError, subprocess.TimeoutExpired):
                     official_msi.unlink(missing_ok=True)
+            elif platform == VelociraptorPlatform.linux_amd64:
+                deb_mode = self._build_linux_deb(installation.binary_path, client_config_path, shutil_binary, root, installation.version)
             readme = root / "README.md"
-            readme.write_text(self._bundle_readme(platform, installation.version, msi_mode), encoding="utf-8")
+            readme.write_text(self._bundle_readme(platform, installation.version, msi_mode, deb_mode), encoding="utf-8")
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
                 for item in sorted(root.iterdir()):
                     archive.write(item, item.name)
         if os.name == "posix":
             archive_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
-        return {"platform": platform.value, "version": installation.version, "filename": bundle_name, "path": str(archive_path), "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}", "includes_msi": msi_mode is not None, "msi_mode": msi_mode}
+        return {
+            "platform": platform.value,
+            "version": installation.version,
+            "filename": bundle_name,
+            "path": str(archive_path),
+            "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}",
+            "includes_msi": msi_mode is not None,
+            "msi_mode": msi_mode,
+            "includes_deb": deb_mode is not None,
+            "deb_mode": deb_mode,
+        }
 
     def list_endpoint_bundles(self) -> list[dict[str, Any]]:
         """List saved bundles using metadata derived from their filenames."""
@@ -309,18 +322,84 @@ class VelociraptorSetupService:
                     "download_url": f"/api/velociraptor/endpoints/bundle/download/{platform.value}",
                     "includes_msi": platform == VelociraptorPlatform.windows_amd64,
                     "msi_mode": None,
+                    "includes_deb": platform == VelociraptorPlatform.linux_amd64,
+                    "deb_mode": None,
                 })
         return result
 
+    def build_all_endpoint_bundles(self) -> list[dict[str, Any]]:
+        """Build endpoint bundles for every supported platform once configs exist.
+
+        Used at startup so the ZIPs are hosted on the web UI without requiring
+        an on-demand build request. Skips cleanly when Velociraptor has not yet
+        been configured (config generation is the prerequisite).
+        """
+        try:
+            installation = self.load_installation()
+        except FileNotFoundError:
+            return []
+        required = [self.runtime_dir / name for name in ("server.config.yaml", "client.config.yaml", "api.config.yaml")]
+        if not all(path.is_file() for path in required):
+            return []
+        bundles: list[dict[str, Any]] = []
+        for target in (VelociraptorPlatform.linux_amd64, VelociraptorPlatform.windows_amd64):
+            try:
+                bundles.append(self.build_endpoint_bundle(target, installation=installation))
+            except (FileNotFoundError, ValueError, OSError, subprocess.TimeoutExpired):
+                continue
+        return bundles
+
     @staticmethod
-    def _bundle_readme(platform: VelociraptorPlatform, version: str, msi_mode: str | None) -> str:
+    def _build_linux_deb(binary_path: Path, client_config_path: Path, packaged_binary: Path, staging: Path, version: str) -> str | None:
+        """Build a `.deb` client package that embeds the generated client config.
+
+        This mirrors the Windows MSI repack: Velociraptor has no official
+        pre-built `.deb` client installer, so we generate one locally from the
+        verified release binary so the package carries the configured client.
+        """
+        try:
+            build = subprocess.run(
+                [
+                    str(binary_path),
+                    "--config", str(client_config_path),
+                    "debian", "client",
+                    "--binary", str(packaged_binary),
+                    "--output", str(staging),
+                ],
+                cwd=staging, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                timeout=180, check=False,
+            )
+            if build.returncode != 0:
+                return None
+            candidates = sorted(staging.glob(f"velociraptor_client_{version}_*.deb"))
+            if not candidates:
+                return None
+            produced = candidates[0]
+            if not produced.stat().st_size:
+                produced.unlink(missing_ok=True)
+                return None
+            return "packaged"
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+    @staticmethod
+    def _bundle_readme(platform: VelociraptorPlatform, version: str, msi_mode: str | None, deb_mode: str | None = None) -> str:
         if platform == VelociraptorPlatform.windows_amd64:
             install = ("Run PowerShell as Administrator and execute: `msiexec /i .\\velociraptor-windows.msi /qn`" if msi_mode == "repacked" else "The official MSI is included as `velociraptor-windows-official.msi`, but it has a placeholder configuration. Copy `client.config.yaml` beside the installed executable before starting the service. For a configured install, use the included executable and config directly.")
             run = "`& 'C:\\Program Files\\Velociraptor\\velociraptor.exe' --config 'C:\\Program Files\\Velociraptor\\client.config.yaml' client -v`"
+        elif platform == VelociraptorPlatform.linux_amd64 and deb_mode == "packaged":
+            install = "Install the package: `sudo dpkg -i velociraptor_client_*.deb` (then `sudo apt-get install -f` if dependencies are missing). The package installs a `velociraptor` service that starts the configured client automatically."
+            run = "Run interactively instead: `sudo ./velociraptor --config ./client.config.yaml client -v`"
         else:
             install = "Make the binary executable: `chmod 700 ./velociraptor`"
             run = "`sudo ./velociraptor --config ./client.config.yaml client -v`"
-        return f"""# Sentroxis Velociraptor endpoint bundle\n\nVersion: {version}\n\nThis package contains the official, SHA-256-verified Velociraptor client binary, the generated client configuration, the local API configuration, and the Windows installer when available. The API configuration contains private key material; keep this archive restricted and never commit it to source control.\n\n## Install\n\n{install}\n\n## Run interactively\n\n{run}\n\nThe client connects to the server URL embedded in `client.config.yaml`. The first connection enrolls the endpoint. Use an approved service-management workflow for persistent deployment, and remove this README/package from shared locations after installation.\n"""
+        extras = []
+        if platform == VelociraptorPlatform.windows_amd64:
+            extras.append("the Windows installer")
+        if deb_mode == "packaged":
+            extras.append("the Debian package")
+        signed_packages = f" and {', and '.join(extras)}" if len(extras) == 1 else (f" and {', '.join(extras)}" if extras else "")
+        return f"""# Sentroxis Velociraptor endpoint bundle\n\nVersion: {version}\n\nThis package contains the official, SHA-256-verified Velociraptor client binary, the generated client configuration, the local API configuration,{signed_packages}. The API configuration contains private key material; keep this archive restricted and never commit it to source control.\n\n## Install\n\n{install}\n\n## Run interactively\n\n{run}\n\nThe client connects to the server URL embedded in `client.config.yaml`. The first connection enrolls the endpoint. Use an approved service-management workflow for persistent deployment, and remove this README/package from shared locations after installation.\n"""
 
     def load_installation(self) -> VelociraptorInstallation:
         if not self.installation_path.is_file():
