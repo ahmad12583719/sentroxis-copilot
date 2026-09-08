@@ -383,6 +383,8 @@ configure_local_proxy() {
   cat > docker-compose.sentroxis.yml <<'YAML'
 services:
   wazuh.indexer:
+    ports:
+      - "9200:9200"
     healthcheck:
       test: ["CMD-SHELL", "curl -kfsS --max-time 5 https://127.0.0.1:9200/ >/dev/null || exit 1"]
       interval: 10s
