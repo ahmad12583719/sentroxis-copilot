@@ -36,13 +36,34 @@ wait_for_wazuh_endpoint() {
 
 start_and_check_wazuh() {
   local wazuh_dir="$ROOT_DIR/.wazuh/single-node"
-  [[ -f "$wazuh_dir/docker-compose.yml" && -f "$wazuh_dir/docker-compose.sentroxis.yml" ]] || return 0
-  command -v docker >/dev/null 2>&1 || return 0
+  [[ -f "$wazuh_dir/docker-compose.yml" ]] || {
+    printf 'ERROR: Wazuh Compose file is missing: %s\n' "$wazuh_dir/docker-compose.yml" >&2
+    return 1
+  }
+  [[ -f "$wazuh_dir/docker-compose.sentroxis.yml" ]] || {
+    printf 'ERROR: Sentroxis Compose override is missing: %s\n' "$wazuh_dir/docker-compose.sentroxis.yml" >&2
+    printf 'Run ./install.py first to provision the Wazuh stack.\n' >&2
+    return 1
+  }
+  command -v docker >/dev/null 2>&1 || {
+    printf 'ERROR: Docker is required to start the Wazuh stack.\n' >&2
+    return 1
+  }
   printf '==> Starting the Wazuh Compose stack\n'
+  (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config >/dev/null)
+  (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config --services | grep -qx 'wazuh.dashboard_proxy') || {
+    printf 'ERROR: Sentroxis Compose override does not define wazuh.dashboard_proxy.\n' >&2
+    return 1
+  }
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml up -d --build)
   wait_for_wazuh_endpoint "OpenSearch indexer" "https://127.0.0.1:9200/" '^(200|401|403)$'
   wait_for_wazuh_endpoint "Wazuh Manager API" "https://127.0.0.1:55000/" '^401$'
   wait_for_wazuh_endpoint "Wazuh dashboard" "https://127.0.0.1/" '^[23][0-9][0-9]$'
+  (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml ps --status running --services | grep -qx 'wazuh.dashboard_proxy') || {
+    printf 'ERROR: wazuh.dashboard_proxy is not running after startup.\n' >&2
+    (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml ps) >&2 || true
+    return 1
+  }
 }
 start_and_check_wazuh
 
