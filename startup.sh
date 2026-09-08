@@ -116,10 +116,15 @@ start_and_check_wazuh() {
     return 1
   }
 }
-start_and_check_wazuh
+if [[ "${SENTROXIS_START_WAZUH:-0}" == "1" ]]; then
+  start_and_check_wazuh
+else
+  printf '==> Wazuh startup skipped; Sentroxis and Velociraptor do not require the local Wazuh Compose stack.\n'
+  printf '    To start Wazuh explicitly, run: SENTROXIS_START_WAZUH=1 ./start.sh\n'
+fi
 
-# Wazuh is an optional external integration. When its local Compose deployment
-# exists, startup.sh starts it and waits for all required health endpoints.
+# Wazuh is an optional external integration. When explicitly enabled, startup.sh
+# starts it and waits for all required health endpoints.
 
 VELOCIRAPTOR_DIR="$ROOT_DIR/backend/runtime/velociraptor"
 VELOCIRAPTOR_BIN="$VELOCIRAPTOR_DIR/velociraptor"
