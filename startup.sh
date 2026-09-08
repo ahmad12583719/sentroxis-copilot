@@ -34,6 +34,22 @@ wait_for_wazuh_endpoint() {
   return 1
 }
 
+wait_for_indexer() {
+  local attempt
+  printf '==> Waiting for OpenSearch cluster health\n'
+  for attempt in {1..36}; do
+    if curl --silent --show-error --insecure --fail --user "admin:${WAZUH_INDEXER_PASSWORD}" \
+      --connect-timeout 3 --max-time 10 \
+      https://127.0.0.1:9200/_cluster/health >/dev/null 2>&1; then
+      printf '    OpenSearch cluster health is ready\n'
+      return 0
+    fi
+    sleep 5
+  done
+  printf 'ERROR: OpenSearch cluster health did not become ready\n' >&2
+  return 1
+}
+
 ensure_wazuh_build_context() {
   local wazuh_dir="$ROOT_DIR/.wazuh/single-node"
   local build_dir="$ROOT_DIR/.wazuh/build-docker-images/wazuh-manager"
@@ -72,6 +88,17 @@ start_and_check_wazuh() {
     printf 'ERROR: Docker is required to start the Wazuh stack.\n' >&2
     return 1
   }
+  if [[ -f "$ROOT_DIR/runtime/wazuh-api.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/runtime/wazuh-api.env"
+    set +a
+  fi
+  [[ -n "${WAZUH_INDEXER_PASSWORD:-}" ]] || {
+    printf 'ERROR: WAZUH_INDEXER_PASSWORD is unavailable for the indexer healthcheck.\n' >&2
+    printf 'Run ./install.py first or provide runtime/wazuh-api.env.\n' >&2
+    return 1
+  }
   printf '==> Starting the Wazuh Compose stack\n'
   ensure_wazuh_build_context
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config >/dev/null)
@@ -80,7 +107,7 @@ start_and_check_wazuh() {
     return 1
   }
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml up -d --build)
-  wait_for_wazuh_endpoint "OpenSearch indexer" "https://127.0.0.1:9200/" '^(200|401|403)$'
+  wait_for_indexer
   wait_for_wazuh_endpoint "Wazuh Manager API" "https://127.0.0.1:55000/" '^401$'
   wait_for_wazuh_endpoint "Wazuh dashboard" "https://127.0.0.1/" '^[23][0-9][0-9]$'
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml ps --status running --services | grep -qx 'wazuh.dashboard_proxy') || {

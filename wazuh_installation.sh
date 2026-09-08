@@ -390,7 +390,7 @@ services:
     ports:
       - "9200:9200"
     healthcheck:
-      test: ["CMD-SHELL", "curl -kfsS --max-time 5 https://127.0.0.1:9200/ >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -kfsS --max-time 10 -u 'admin:${WAZUH_INDEXER_PASSWORD}' https://127.0.0.1:9200/_cluster/health >/dev/null || exit 1"]
       interval: 10s
       timeout: 8s
       retries: 30
