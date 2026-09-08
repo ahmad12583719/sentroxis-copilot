@@ -34,6 +34,29 @@ wait_for_wazuh_endpoint() {
   return 1
 }
 
+ensure_wazuh_build_context() {
+  local wazuh_dir="$ROOT_DIR/.wazuh/single-node"
+  local build_dir="$ROOT_DIR/.wazuh/build-docker-images/wazuh-manager"
+  local build_config="$build_dir/config"
+  local single_template="$wazuh_dir/config/wazuh_cluster/filebeat.yml"
+  local build_template="$build_config/filebeat.yml"
+  mkdir -p "$build_config"
+  if [[ ! -f "$build_template" && -f "$single_template" ]]; then
+    cp -p "$single_template" "$build_template"
+  fi
+  [[ -f "$build_template" ]] || {
+    printf 'ERROR: Cannot provision Filebeat build context; template missing: %s\n' "$single_template" >&2
+    return 1
+  }
+  if [[ ! -f "$build_dir/Dockerfile.sentroxis" ]]; then
+    cat > "$build_dir/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-manager:4.7.5
+COPY config/filebeat.yml /etc/filebeat/filebeat.yml
+RUN chmod go-w /etc/filebeat/filebeat.yml
+DOCKERFILE
+  fi
+}
+
 start_and_check_wazuh() {
   local wazuh_dir="$ROOT_DIR/.wazuh/single-node"
   [[ -f "$wazuh_dir/docker-compose.yml" ]] || {
@@ -50,6 +73,7 @@ start_and_check_wazuh() {
     return 1
   }
   printf '==> Starting the Wazuh Compose stack\n'
+  ensure_wazuh_build_context
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config >/dev/null)
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config --services | grep -qx 'wazuh.dashboard_proxy') || {
     printf 'ERROR: Sentroxis Compose override does not define wazuh.dashboard_proxy.\n' >&2

@@ -270,7 +270,11 @@ EOF
 patch_filebeat_templates() {
   local build_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml"
   local single_node_template="${WAZUH_HOME}/single-node/config/wazuh_cluster/filebeat.yml"
-  [[ -f "$build_template" ]] || fatal "Pinned Wazuh checkout lacks the Filebeat build template."
+  mkdir -p "$(dirname "$build_template")"
+  if [[ ! -f "$build_template" && -f "$single_node_template" ]]; then
+    cp -p "$single_node_template" "$build_template"
+  fi
+  [[ -f "$build_template" ]] || fatal "Could not provision the Filebeat build template."
   mkdir -p "$(dirname "$single_node_template")"
   [[ -f "$single_node_template" ]] || cp -p "$build_template" "$single_node_template"
   patch_filebeat_template "$single_node_template"
