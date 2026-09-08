@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -31,64 +32,8 @@ BACKEND_DIR = ROOT / "backend"
 DB_PATH = BACKEND_DIR / "sentroxis.db"
 IDENTITY_PATH = BACKEND_DIR / "runtime" / "velociraptor" / "setup-identity.json"
 WAZUH_HANDOFF_PATH = ROOT / "runtime" / ".wazuh-install.env"
-WAZUH_HOME = ROOT / ".wazuh"
 WAZUH_PASSWORD_LENGTH = 32
 WAZUH_PASSWORD_SPECIALS = "@#%+=:,._/-!"
-ARCHIVE_INPUT = '''# SENTROXIS_CUSTOM_ARCHIVE_INPUT
-filebeat.inputs:
-  - type: log
-    enabled: true
-    paths:
-      - /var/ossec/logs/archives/archives.json
-    tags: ["wazuh-archives"]
-'''
-ARCHIVE_ROUTING = '''  # SENTROXIS_FILEBEAT_ARCHIVE_ROUTING
-  indices:
-    - index: "wazuh-archives-%{+yyyy.MM.dd}"
-      when.contains:
-        tags: "wazuh-archives"
-    - index: "wazuh-alerts-%{+yyyy.MM.dd}"
-'''
-
-
-def patch_wazuh_filebeat_template(path: Path) -> None:
-    if not path.is_file():
-        return
-    text = path.read_text(encoding="utf-8")
-    if "# SENTROXIS_CUSTOM_ARCHIVE_INPUT" not in text:
-        text = text.rstrip() + "\n\n" + ARCHIVE_INPUT
-    if "# SENTROXIS_FILEBEAT_ARCHIVE_ROUTING" not in text:
-        import re
-        text, count = re.subn(
-            r"(?m)^output\.(?:elasticsearch|opensearch):[ \t]*$",
-            lambda match: match.group(0) + "\n" + ARCHIVE_ROUTING.rstrip("\n"),
-            text,
-            count=1,
-        )
-        if count == 0:
-            raise RuntimeError(f"No Filebeat output block found in {path}")
-    path.write_text(text if text.endswith("\n") else text + "\n", encoding="utf-8")
-
-
-def repair_wazuh_workspace() -> None:
-    if not WAZUH_HOME.exists():
-        return
-    for template in (
-        WAZUH_HOME / "single-node" / "config" / "wazuh_cluster" / "filebeat.yml",
-        WAZUH_HOME / "build-docker-images" / "wazuh-manager" / "config" / "filebeat.yml",
-    ):
-        patch_wazuh_filebeat_template(template)
-    manager_config = WAZUH_HOME / "single-node" / "config" / "wazuh_cluster" / "wazuh_manager.conf"
-    if manager_config.is_file():
-        text = manager_config.read_text(encoding="utf-8")
-        manager_config.write_text(text.replace("<logall_json>no</logall_json>", "<logall_json>yes</logall_json>"), encoding="utf-8")
-    owner = os.environ.get("SUDO_USER") or os.environ.get("USER")
-    if owner and owner != "root":
-        group = subprocess.run(["id", "-gn", owner], capture_output=True, text=True, check=False).stdout.strip() or owner
-        command = ["chown", "-R", f"{owner}:{group}", str(WAZUH_HOME)]
-        if os.geteuid() != 0:
-            command = ["sudo", "-n", *command]
-        subprocess.run(command, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def ask(prompt: str, default: str | None = None) -> str:
@@ -181,6 +126,61 @@ def register_installer_user(name: str, email: str, password: str):
     return register_first_user(name, email, password)
 
 
+def register_local_user(name: str, email: str, password: str) -> InstallerPrincipal:
+    """Create an additional local account with the same PBKDF2 format as the app."""
+    normalized_name = " ".join(name.strip().split())
+    normalized_email = email.strip().lower()
+    if not normalized_name or len(normalized_name) > 120:
+        raise ValueError("Name must be between 1 and 120 characters")
+    if "@" not in normalized_email or len(normalized_email) > 320:
+        raise ValueError("Enter a valid email address")
+    if len(password) < 12 or len(password) > 128:
+        raise ValueError("Password must be between 12 and 128 characters")
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 210_000)
+    user_id = f"usr-{secrets.token_hex(12)}"
+    try:
+        with sqlite3.connect(DB_PATH) as db:
+            db.execute(
+                "INSERT INTO users (id, name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+                (user_id, normalized_name, normalized_email, f"pbkdf2_sha256$210000${salt.hex()}${digest.hex()}", "admin"),
+            )
+    except sqlite3.IntegrityError as error:
+        raise ValueError("An account with that email already exists") from error
+    return InstallerPrincipal(subject=user_id, role="admin", name=normalized_name, email=normalized_email)
+
+
+def authenticate_local_user(email: str, password: str) -> InstallerPrincipal | None:
+    """Verify an existing account without exposing or logging its password."""
+    normalized_email = email.strip().lower()
+    try:
+        from backend.core.auth import authenticate, configure_auth_db
+        configure_auth_db(str(DB_PATH))
+        principal = authenticate(normalized_email, password)
+        return None if principal is None else InstallerPrincipal(principal.subject, principal.role, principal.name, principal.email)
+    except ModuleNotFoundError as error:
+        if error.name != "fastapi":
+            raise
+    with sqlite3.connect(DB_PATH) as db:
+        row = db.execute("SELECT id, name, email, role, password_hash FROM users WHERE email = ?", (normalized_email,)).fetchone()
+    if not row:
+        return None
+    try:
+        algorithm, iterations, salt_hex, digest_hex = row[4].split("$", 3)
+        candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt_hex), int(iterations)).hex()
+    except (TypeError, ValueError):
+        return None
+    if algorithm != "pbkdf2_sha256" or not hmac.compare_digest(candidate, digest_hex):
+        return None
+    return InstallerPrincipal(subject=row[0], name=row[1], email=row[2], role=row[3])
+
+
+def write_identity(principal: InstallerPrincipal) -> None:
+    IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    IDENTITY_PATH.write_text(json.dumps({"account_id": principal.subject, "email": principal.email, "name": principal.name, "role": principal.role}, indent=2) + "\n", encoding="utf-8")
+    IDENTITY_PATH.chmod(0o600)
+
+
 def validate_wazuh_compatible_password(password: str) -> None:
     """Ensure the shared password satisfies the Wazuh installer policy."""
     if len(password) < 20:
@@ -251,12 +251,73 @@ def create_fresh_sentroxis_account() -> tuple[str, str]:
                 raise
             continue
         break
-    IDENTITY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    IDENTITY_PATH.write_text(json.dumps({"account_id": principal.subject, "email": principal.email, "name": principal.name, "role": principal.role}, indent=2) + "\n", encoding="utf-8")
-    IDENTITY_PATH.chmod(0o600)
+    write_identity(principal)
     print(f"Fresh Sentroxis account created: {principal.email}")
     print(f"Identity handoff saved without password: {IDENTITY_PATH}")
     return principal.email, password
+
+
+def login_existing_sentroxis_account() -> tuple[str, str]:
+    ensure_auth_schema()
+    print("\nSign in to the existing Sentroxis account.")
+    while True:
+        email = ask("Sentroxis login email").lower()
+        password = getpass.getpass("Sentroxis/Wazuh admin password: ")
+        principal = authenticate_local_user(email, password)
+        if principal is None:
+            print("ERROR: Invalid email or password. Try again.")
+            continue
+        try:
+            validate_wazuh_compatible_password(password)
+        except ValueError as error:
+            print(f"ERROR: Login succeeded, but this password cannot be used by the installation tools: {error}")
+            continue
+        write_identity(principal)
+        print(f"Login successful: {principal.email}")
+        return principal.email, password
+
+
+def create_new_sentroxis_account() -> tuple[str, str]:
+    ensure_auth_schema()
+    print("\nCreate a new Sentroxis account. Existing accounts will be preserved.")
+    name = ask("Sentroxis display name")
+    email = ask("Sentroxis login email").lower()
+    while True:
+        password = getpass.getpass("Sentroxis/Wazuh admin password (minimum 20 characters): ")
+        confirm = getpass.getpass("Confirm Sentroxis/Wazuh admin password: ")
+        if password != confirm:
+            print("ERROR: Passwords do not match. Try again.")
+            continue
+        try:
+            validate_wazuh_compatible_password(password)
+            principal = register_local_user(name, email, password)
+        except ValueError as error:
+            print(f"ERROR: {error}")
+            continue
+        write_identity(principal)
+        print(f"New Sentroxis account created: {principal.email}")
+        return principal.email, password
+
+
+def choose_installer_account() -> tuple[str, str]:
+    ensure_auth_schema()
+    with sqlite3.connect(DB_PATH) as db:
+        has_account = db.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
+    if not has_account:
+        return create_fresh_sentroxis_account()
+    print("\nA Sentroxis account already exists.")
+    print("1. Login with existing account")
+    print("2. Sign up for a new account")
+    print("3. Exit installer")
+    while True:
+        choice = ask("Select an account action", "1")
+        if choice == "1":
+            return login_existing_sentroxis_account()
+        if choice == "2":
+            return create_new_sentroxis_account()
+        if choice == "3":
+            raise RuntimeError("Installer exited without changing the existing account")
+        print("Please select 1, 2, or 3.")
 
 
 def run_wazuh(password: str) -> int:
@@ -265,8 +326,9 @@ def run_wazuh(password: str) -> int:
         print(f"ERROR: Wazuh installer not found: {script}")
         return 1
     if not os.access(script, os.X_OK):
-        script.chmod(script.stat().st_mode | 0o700)
-    repair_wazuh_workspace()
+        print(f"ERROR: Wazuh installer is not executable: {script}")
+        print(f"Run: chmod 700 {script}")
+        return 1
     print("\nStarting Wazuh with the shared Sentroxis/Wazuh admin password.")
     print("Wazuh Dashboard login: username admin; use the Sentroxis password.")
     print("Internal kibanaserver and wazuh-wui passwords will be generated and stored locally.")
@@ -341,7 +403,7 @@ def main() -> int:
     print("=== Sentroxis fresh installation ===")
     print("Task 01: create the fresh Sentroxis web-login account")
     try:
-        _, password = create_fresh_sentroxis_account()
+        _, password = choose_installer_account()
         return installation_menu(password)
     except KeyboardInterrupt:
         print("\nInstaller cancelled by user.")
