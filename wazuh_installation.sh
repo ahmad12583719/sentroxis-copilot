@@ -492,7 +492,7 @@ server {
     # This scoped local proxy permits only local Sentroxis origins.
     proxy_hide_header X-Frame-Options;
     proxy_hide_header Content-Security-Policy;
-    add_header Content-Security-Policy "frame-ancestors 'self'" always;
+    add_header Content-Security-Policy "frame-ancestors 'self' http://localhost:* https://localhost:* http://127.0.0.1:* https://127.0.0.1:*" always;
 
     location /wazuh/ {
         proxy_pass https://wazuh.dashboard:5601/;
