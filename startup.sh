@@ -71,6 +71,36 @@ COPY config/filebeat.yml /etc/filebeat/filebeat.yml
 RUN chmod go-w /etc/filebeat/filebeat.yml
 DOCKERFILE
   fi
+  # The compose override builds images from contexts relative to single-node/,
+  # so mirror the manager context there and provision the indexer/dashboard
+  # healthcheck images (the upstream images lack curl).
+  local manager_dir="$wazuh_dir/build-docker-images/wazuh-manager"
+  mkdir -p "$manager_dir"
+  cp -p "$build_dir/Dockerfile.sentroxis" "$manager_dir/Dockerfile.sentroxis"
+  if [[ ! -f "$manager_dir/config/filebeat.yml" ]]; then
+    mkdir -p "$manager_dir/config"
+    cp -p "$build_config/filebeat.yml" "$manager_dir/config/filebeat.yml"
+  fi
+  local indexer_dir="$wazuh_dir/build-docker-images/wazuh-indexer"
+  mkdir -p "$indexer_dir"
+  if [[ ! -f "$indexer_dir/Dockerfile.sentroxis" ]]; then
+    cat > "$indexer_dir/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-indexer:4.7.5
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+USER wazuh-indexer
+DOCKERFILE
+  fi
+  local dashboard_dir="$wazuh_dir/build-docker-images/wazuh-dashboard"
+  mkdir -p "$dashboard_dir"
+  if [[ ! -f "$dashboard_dir/Dockerfile.sentroxis" ]]; then
+    cat > "$dashboard_dir/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-dashboard:4.7.5
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+USER wazuh-dashboard
+DOCKERFILE
+  fi
 }
 
 start_and_check_wazuh() {
@@ -99,6 +129,14 @@ start_and_check_wazuh() {
     printf 'Run ./install.py first or provide runtime/wazuh-api.env.\n' >&2
     return 1
   }
+  local env_file="$wazuh_dir/.env"
+  if [[ ! -f "$env_file" ]]; then
+    printf '==> Generating %s for Docker Compose health-check interpolation\n' "$env_file"
+    cat > "$env_file" <<ENVEOF
+WAZUH_INDEXER_PASSWORD=${WAZUH_INDEXER_PASSWORD}
+ENVEOF
+    chmod 600 "$env_file"
+  fi
   printf '==> Starting the Wazuh Compose stack\n'
   ensure_wazuh_build_context
   (cd "$wazuh_dir" && docker compose -f docker-compose.yml -f docker-compose.sentroxis.yml config >/dev/null)

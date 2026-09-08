@@ -284,6 +284,39 @@ FROM wazuh/wazuh-manager:4.7.5
 COPY config/filebeat.yml /etc/filebeat/filebeat.yml
 RUN chmod go-w /etc/filebeat/filebeat.yml
 DOCKERFILE
+  # The upstream wazuh-indexer image lacks curl, so the authenticated HTTPS
+  # cluster-health healthcheck (NFR-22) cannot run in it. Provision a custom
+  # image with curl baked in so Docker can probe /_cluster/health with --insecure
+  # and basic auth during startup.
+  cat > "${WAZUH_HOME}/build-docker-images/wazuh-indexer/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-indexer:4.7.5
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+USER wazuh-indexer
+DOCKERFILE
+  local indexer_compose_dir="${WAZUH_HOME}/single-node/build-docker-images/wazuh-indexer"
+  mkdir -p "$indexer_compose_dir"
+  cp -p "${WAZUH_HOME}/build-docker-images/wazuh-indexer/Dockerfile.sentroxis" "$indexer_compose_dir/Dockerfile.sentroxis"
+  # The upstream wazuh-dashboard image likewise lacks curl; bake it in so the
+  # HTTPS dashboard healthcheck runs instead of failing with "curl: not found".
+  cat > "${WAZUH_HOME}/build-docker-images/wazuh-dashboard/Dockerfile.sentroxis" <<'DOCKERFILE'
+FROM wazuh/wazuh-dashboard:4.7.5
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+USER wazuh-dashboard
+DOCKERFILE
+  local dashboard_compose_dir="${WAZUH_HOME}/single-node/build-docker-images/wazuh-dashboard"
+  mkdir -p "$dashboard_compose_dir"
+  cp -p "${WAZUH_HOME}/build-docker-images/wazuh-dashboard/Dockerfile.sentroxis" "$dashboard_compose_dir/Dockerfile.sentroxis"
+  local manager_compose_dir="${WAZUH_HOME}/single-node/build-docker-images/wazuh-manager"
+  mkdir -p "$manager_compose_dir"
+  if [[ ! -f "$manager_compose_dir/Dockerfile.sentroxis" ]]; then
+    cp -p "${WAZUH_HOME}/build-docker-images/wazuh-manager/Dockerfile.sentroxis" "$manager_compose_dir/Dockerfile.sentroxis"
+  fi
+  if [[ -f "${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml" && ! -f "$manager_compose_dir/config/filebeat.yml" ]]; then
+    mkdir -p "$manager_compose_dir/config"
+    cp -p "${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml" "$manager_compose_dir/config/filebeat.yml"
+  fi
 }
 
 generate_bcrypt_hash() {
@@ -387,6 +420,10 @@ configure_local_proxy() {
   cat > docker-compose.sentroxis.yml <<'YAML'
 services:
   wazuh.indexer:
+    build:
+      context: ./build-docker-images/wazuh-indexer
+      dockerfile: Dockerfile.sentroxis
+    image: sentroxis/wazuh-indexer:4.7.5-healthcheck
     ports:
       - "9200:9200"
     healthcheck:
@@ -410,6 +447,10 @@ services:
       retries: 30
       start_period: 30s
   wazuh.dashboard:
+    build:
+      context: ./build-docker-images/wazuh-dashboard
+      dockerfile: Dockerfile.sentroxis
+    image: sentroxis/wazuh-dashboard:4.7.5-healthcheck
     expose:
       - "5601"
     depends_on:
@@ -481,6 +522,12 @@ server {
     }
 }
 NGINX
+  # Write .env so Docker Compose can interpolate ${WAZUH_INDEXER_PASSWORD} in
+  # the healthcheck CMD-SHELL of docker-compose.sentroxis.yml.  Without this,
+  # the indexer healthcheck probes without credentials and the container is
+  # marked unhealthy, which blocks startup of all dependent services.
+  umask 077
+  printf 'WAZUH_INDEXER_PASSWORD=%s\n' "$WAZUH_INDEXER_PASSWORD" > .env
 }
 repair_wazuh_ownership() {
   local owner="${SUDO_USER:-${USER:-}}" group
