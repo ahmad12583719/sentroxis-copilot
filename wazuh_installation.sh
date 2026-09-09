@@ -274,6 +274,7 @@ patch_filebeat_templates() {
   local build_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml"
   local single_node_template="${WAZUH_HOME}/single-node/config/wazuh_cluster/filebeat.yml"
   local wazuh_alerts_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/wazuh-template.json"
+  local bundled_template="${SCRIPT_DIR}/assets/wazuh-template-4.7.5.json"
   local template_tmp="${wazuh_alerts_template}.tmp.$$"
   local template_url template_downloaded=0
   mkdir -p "$(dirname "$build_template")"
@@ -300,7 +301,10 @@ if "wazuh-alerts-4.x-*" not in template.get("index_patterns", []):
     raise SystemExit(1)
 PY
   }
-  if template_is_valid "$wazuh_alerts_template"; then
+  if [[ "$WAZUH_VERSION" == "$DEFAULT_VERSION" ]] && template_is_valid "$bundled_template"; then
+    cp -p "$bundled_template" "$wazuh_alerts_template"
+    log "Using the bundled pinned Wazuh alerts index template."
+  elif template_is_valid "$wazuh_alerts_template"; then
     log "Using the previously validated pinned Wazuh alerts index template."
   else
     rm -f "$template_tmp"
