@@ -33,6 +33,7 @@ describe('Sentroxis Copilot application', () => {
     expect(screen.getAllByRole('button', { name: 'Endpoints' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: 'AI co-pilot' }).length).toBeGreaterThan(0)
     expect(screen.getByTitle('Wazuh dashboard')).toBeInTheDocument()
+    expect(screen.getByTitle('Wazuh dashboard')).toHaveAttribute('src', 'http://localhost/')
   })
 
   it('opens the Wazuh agent management tab from the primary navigation', async () => {
