@@ -274,7 +274,8 @@ patch_filebeat_templates() {
   local build_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/filebeat.yml"
   local single_node_template="${WAZUH_HOME}/single-node/config/wazuh_cluster/filebeat.yml"
   local wazuh_alerts_template="${WAZUH_HOME}/build-docker-images/wazuh-manager/config/wazuh-template.json"
-  local template_url="https://raw.githubusercontent.com/wazuh/wazuh/${WAZUH_VERSION}/extensions/elasticsearch/7.x/wazuh-template.json"
+  local template_tmp="${wazuh_alerts_template}.tmp.$$"
+  local template_url template_downloaded=0
   mkdir -p "$(dirname "$build_template")"
   if [[ ! -f "$build_template" && -f "$single_node_template" ]]; then
     cp -p "$single_node_template" "$build_template"
@@ -284,18 +285,40 @@ patch_filebeat_templates() {
   [[ -f "$single_node_template" ]] || cp -p "$build_template" "$single_node_template"
   patch_filebeat_template "$single_node_template"
   patch_filebeat_template "$build_template"
-  log "Downloading the pinned Wazuh alerts index template."
-  curl --fail --silent --show-error --location --retry 3 "$template_url" -o "$wazuh_alerts_template"
-  python3 - "$wazuh_alerts_template" <<'PY'
+  log "Preparing the pinned Wazuh alerts index template."
+  template_is_valid() {
+    python3 - "$1" <<'PY'
 import json
 import sys
 from pathlib import Path
-
 template_path = Path(sys.argv[1])
-template = json.loads(template_path.read_text(encoding="utf-8"))
+try:
+    template = json.loads(template_path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
 if "wazuh-alerts-4.x-*" not in template.get("index_patterns", []):
-    raise SystemExit("Downloaded Wazuh template does not define wazuh-alerts-4.x-*")
+    raise SystemExit(1)
 PY
+  }
+  if template_is_valid "$wazuh_alerts_template"; then
+    log "Using the previously validated pinned Wazuh alerts index template."
+  else
+    rm -f "$template_tmp"
+    for template_url in \
+      "https://raw.githubusercontent.com/wazuh/wazuh/${WAZUH_VERSION}/extensions/elasticsearch/7.x/wazuh-template.json" \
+      "https://github.com/wazuh/wazuh/raw/refs/tags/${WAZUH_VERSION}/extensions/elasticsearch/7.x/wazuh-template.json"; do
+      if curl --fail --silent --show-error --location --retry 5 --retry-delay 3 --retry-all-errors \
+        --connect-timeout 10 --max-time 90 "$template_url" -o "$template_tmp" \
+        && template_is_valid "$template_tmp"; then
+        mv -f "$template_tmp" "$wazuh_alerts_template"
+        template_downloaded=1
+        break
+      fi
+      warn "Wazuh template endpoint was unavailable; trying the next official endpoint."
+      rm -f "$template_tmp"
+    done
+    (( template_downloaded )) || fatal "Could not download a valid pinned Wazuh alerts index template. Check network access and rerun the installer."
+  fi
   cat > "${WAZUH_HOME}/build-docker-images/wazuh-manager/Dockerfile.sentroxis" <<'DOCKERFILE'
 FROM wazuh/wazuh-manager:4.7.5
 COPY config/filebeat.yml /etc/filebeat/filebeat.yml
