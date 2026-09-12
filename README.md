@@ -40,6 +40,8 @@ For the planned Wazuh-to-OpenSearch telemetry path, collected log types, Logstas
 
 For the gated implementation sequence, phase deliverables, test requirements, acceptance criteria, and merge checklist, read [`docs/opensearch-wazuh-phased-implementation-plan.md`](docs/opensearch-wazuh-phased-implementation-plan.md).
 
+For the formal technical proposal, feasibility analysis, integration methods, security model, and team decision summary, read [`docs/opensearch-wazuh-logical-implementation-proposal.md`](docs/opensearch-wazuh-logical-implementation-proposal.md).
+
 ### Wazuh credentials
 
 The installer prompts for three separate credentials: the Wazuh indexer `admin` password, the Wazuh dashboard password, and the Wazuh Server API password. Each password must be at least 20 characters and contain uppercase and lowercase letters, a number, and a special character. Use different passwords for each service. Never place passwords in Git, URLs, screenshots, issue reports, or pasted terminal output.
@@ -125,6 +127,7 @@ sentroxis-copilot/
     ├── opensearch-telemetry-architecture.drawio
     ├── opensearch-telemetry-execution-plan.md
     ├── opensearch-wazuh-phased-implementation-plan.md
+    ├── opensearch-wazuh-logical-implementation-proposal.md
     ├── wazuh-opensearch-training-data-guide.md
     └── velociraptor-contributor-readme.md
 ```
